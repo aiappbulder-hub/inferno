@@ -27,8 +27,10 @@ machine heart of the system.
 3. **Death is the teacher.** Frequent, fast, fair; instant restart at a
    checkpoint per screen or set-piece.
 4. **A fixed action set, recontextualized.** Walk/run, jump, crouch/crawl,
-   grab/climb, use/push/pull, follow/signal Virgil. No inventory, no
-   upgrades, no combat — Dante never fights.
+   grab/climb, use/push/pull, follow/signal Virgil — and, from the ticket
+   hall onward, **fire**: one gun with *Another World*'s grammar (tap =
+   shot, hold = shield, long-hold = charge blast). No inventory, no
+   upgrades, no second weapon, ever.
 5. **By the book.** If a scene isn't in the poem, it isn't in the game. The
    modern staging changes how it looks, never what happens.
 

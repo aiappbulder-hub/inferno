@@ -7,17 +7,23 @@ attendant; every circle is a deeper, stranger line.
 
 **Status: hobby project.** Release one is a single free playable slice —
 the Prologue (dark wood → Gate of Hell → Acheron crossing) as a browser
-build. No combat, ever. Art targets a flat-vector look in the spirit of the
-*Another World* 20th Anniversary remaster: smooth flat shapes, gradients,
-silhouettes, no outlines. Everything beyond the Prologue in these documents
-is roadmap, not commitment.
+build. On the surface Dante only runs and hides; beneath it he finds a
+transit-police sidearm with *Another World*'s exact grammar — tap to shoot,
+hold to plant a shield, long-hold for a charge blast. Art targets a
+flat-vector look in the spirit of the *Another World* 20th Anniversary
+remaster: smooth flat shapes, gradients, silhouettes, no outlines.
+Everything beyond the Prologue in these documents is roadmap, not
+commitment.
 
 ## Play the slice
 
 Open [`game/index.html`](game/index.html) in a browser — no build step, no
 dependencies. Arrow keys move, **Shift** runs, **Space** jumps, **↓**
-crouches. Four screens: the park, the leopard, the lion chase, and the
-she-wolf. Death restarts the screen instantly; that's the design.
+crouches, **X** fires once you have the gun (tap = shot, hold = shield,
+long-hold = charge blast). On phones, touch buttons appear automatically.
+Seven screens: the park, the leopard, the lion chase, the she-wolf, the
+dark ticket hall, the vestibule, and the Acheron crossing. Death restarts
+the screen instantly; that's the design.
 
 ## Documents
 
@@ -49,6 +55,7 @@ she-wolf. Death restarts the screen instantly; that's the design.
 ## The rules in one breath
 
 No HUD, no text, no dialogue. One camera, one art style. Death is the
-teacher. Six verbs, never more, recontextualized every circle. Dante never
-fights. And if a scene isn't in the poem, it isn't in the game — the modern
+teacher. A fixed verb set recontextualized every circle — and below the
+surface, one weapon with *Another World*'s three tricks: shot, shield,
+charge. If a scene isn't in the poem, it isn't in the game — the modern
 staging changes how it looks, never what happens.
