@@ -1,145 +1,145 @@
 # INFERNO — Game Design Prompt
 
-> An improved, production-ready prompt for planning a cinematic platformer based on
-> Dante's Inferno, in the style of *Another World* (Eric Chahi, 1991), using the
-> pixel-art "Circles of Hell" metro-station illustration as the art-direction anchor.
+> A production-ready prompt for planning **INFERNO**: a 2D cinematic platformer
+> that plays like *Another World* (1991) but tells no story of its own — it
+> follows Dante's *Inferno* by the book, canto by canto, with Virgil as the
+> player's guide, rendered in the pixel-art "Circles of Hell" metro style of
+> the reference illustration.
 
 ---
 
 ## The Prompt
 
-You are a veteran game designer and creative director. Plan a complete game design
-document for **INFERNO**, a 2D cinematic platformer in the tradition of
-*Another World* (1991), *Flashback*, and *Limbo*, structured around the nine
-circles of Hell from Dante's *Divine Comedy*.
+You are a veteran game designer. Plan a complete game design document for
+**INFERNO**, a 2D cinematic platformer structured around the nine circles of
+Hell from Dante's *Divine Comedy*.
 
-### 1. Core fantasy
+**Scope of influences — keep them separate:**
 
-The player is **Dante** — not a medieval poet, but a modern commuter. Mid-life,
-gray suit, briefcase. One evening his late train never surfaces: the metro keeps
-descending, and the doors open onto Limbo. To return to the world above he must
-descend through all nine circles, because in Hell the only way out is through
-the bottom. He is guided by **Virgil**, a silent, flickering station attendant
-who appears at platforms, punches his ticket, and points the way — the game's
-Buddy/companion figure, mirroring the alien friend in *Another World*.
+- From ***Another World* (1991)** take ONLY the game concept, style, level
+  design philosophy, and action set. Do **not** borrow its story, characters,
+  or setting.
+- From **Dante's *Inferno*** take the ENTIRE story. The game adapts the poem
+  faithfully: same protagonist, same guide, same circles, same guardians, same
+  encounters, same ending. No invented plot.
+- From the **reference screenshot** take the art direction: Hell as a
+  pixel-art cutaway of descending metro strata, with Virgil depicted as a
+  station attendant who guides Dante from level to level.
 
-Opening title card (the only text in the game):
-*"In the middle of the journey of our life, I came to myself, in a dark wood..."*
+### 1. Game concept (the Another World part)
 
-### 2. Design pillars — what "like Another World" actually means
+A side-view cinematic platformer built on these rules:
 
-Honor these five rules from the 1991 original; every mechanic must pass them:
+1. **No HUD, no text, no dialogue.** Everything is communicated through
+   animation, staging, and the environment. The only text in the game is one
+   ribbon plaque naming each circle as its title card (like the "LIMBO" banner
+   in the reference image).
+2. **One camera, one art style.** Gameplay and cutscenes are continuous;
+   cuts, zooms, and silhouetted wide shots are used like film editing, with no
+   breaks within a level.
+3. **Death is the teacher.** Deaths are frequent, fast, and fair; each one
+   teaches a rule of the current circle. Instant restart at generous
+   checkpoints (one per screen or set-piece).
+4. **A fixed action set, recontextualized per level.** The player's verbs
+   never grow — no inventory, no upgrades, no combat system:
+   - **Walk / Run**
+   - **Jump** (running and standing)
+   - **Crouch / Crawl**
+   - **Grab / Climb** (ledges, ladders, ropes, bodies)
+   - **Use / Push / Pull** (levers, gates, boats, boulders)
+   - **Follow / Signal Virgil** (a single context action to call or catch up
+     to the guide)
+   Each circle turns the same verbs against new physics: "run" fights the
+   gale of Circle 2, "crawl" hides from Cerberus in Circle 3, "climb"
+   descends Lucifer's body in Circle 9.
+5. **Puzzle screens, not combat.** Threats are guardians, hazards, and the
+   damned; Dante never fights. Progress means reading a screen, timing
+   movement, positioning with Virgil, and manipulating the environment.
 
-1. **No HUD, no text, no dialogue.** All storytelling is environmental,
-   animated, and diegetic. Health, danger, and objectives are communicated
-   through animation and staging only.
-2. **Cinematic continuity.** Gameplay and cutscenes share one camera and one
-   art style; cuts, zooms, and silhouetted wide shots are used like film
-   editing. No loading-screen breaks between scenes within a circle.
-3. **Death is the teacher.** Deaths are frequent, fast, spectacular, and
-   fair — each one teaches a rule of the current circle. Instant restart at
-   generous checkpoints (one per screen or set-piece).
-4. **One verb set, recontextualized.** Run, jump, crouch, grab, use. No
-   inventory, no upgrades. Each circle re-uses the verbs against new physics
-   (e.g., "run" against the gale of Circle 2, "crouch" under the ice wind of
-   Circle 9).
-5. **A wordless companion.** Virgil solves what Dante cannot and vice versa;
-   their cooperation is choreographed, never menu-driven. The emotional arc of
-   the game is their relationship.
+### 2. Story — by the book
+
+The narrative is Dante's *Inferno*, adapted scene for scene and told without
+words. The design document must map levels to the poem's actual events:
+
+- **Prologue:** Dante lost in the dark wood, barred by the three beasts
+  (leopard, lion, she-wolf) in an unwinnable chase sequence; Virgil appears
+  and leads him to the Gate of Hell ("Abandon all hope" rendered as imagery,
+  not readable text).
+- **Virgil is the companion for the whole game** — depicted as a calm,
+  uniformed **station attendant**: he punches tickets at each circle's
+  threshold, negotiates with guardians (Charon, Minos, Plutus, Phlegyas, the
+  Malebranche) in silent animated exchanges while Dante waits or hides, and
+  physically helps Dante past obstacles, exactly as in the poem (carrying him,
+  shielding his eyes from Medusa, arranging the ride on Geryon's back).
+- **The famous encounters happen where the book puts them:** Charon's
+  crossing of Acheron; Minos judging the damned; Cerberus; Plutus; the Styx
+  and Phlegyas' ferry; the walls of Dis, the Furies, and the heaven-sent
+  messenger who opens the gate; the Minotaur, Centaurs, the wood of suicides,
+  and the burning sand; the flight down to Malebolge on Geryon; the ten
+  bolgias and the Malebranche pursuit; the giant Antaeus lowering the pair to
+  Cocytus; Lucifer at the center chewing Judas, Brutus, and Cassius.
+- **Ending, as written:** Dante and Virgil climb down Lucifer's frozen body,
+  gravity inverts at the center of the earth, and they emerge to see the
+  stars — a single sunrise frame, no text.
 
 ### 3. Art direction — from the reference screenshot
 
-The visual bible is the pixel-art "Circles of Hell" infographic: Hell as a
-**cutaway cross-section of a modern city**, each circle a geological stratum
-beneath a metro platform.
+- **World concept:** Hell as a **cutaway cross-section of descending metro
+  strata** — each circle a layer beneath the platform above it, connected by
+  escalators, stairwells, ventilation shafts, and tunnels that only go down.
+- **Style:** chunky, readable pixel art (~32–48 px characters), flat color
+  fields, dioramic side-view layers, minimal outlines.
+- **Palette:** one dominant color per circle. Limbo keeps the warm
+  brick-red/orange and teal of the reference; deeper circles shift — rose and
+  smoke (Lust), sickly green rain (Gluttony), gold (Greed), mud brown
+  (Wrath), iron red (Heresy), blood crimson (Violence), bone and tar (Fraud),
+  blue-white ice (Treachery).
+- **Tone:** deadpan and melancholy. The damned are ordinary modern figures —
+  commuters, brides, monks, kissing couples — suffering the poem's exact
+  punishments in mundane transit spaces. Guardians and monsters are the one
+  scale-breaking element: Cerberus fills three tunnel mouths; Lucifer is the
+  size of the final screen.
 
-- **Style:** chunky, readable pixel art (roughly 32–48 px characters), flat
-  color fields, minimal outlines, dioramic side-view layers.
-- **Palette:** each circle owns one dominant color. Limbo is the warm
-  brick-red/orange of the reference image with teal train accents; deeper
-  circles shift — rose/smoke (Lust), sickly green rain (Gluttony), gold
-  (Greed), mud brown (Wrath), iron red (Heresy), blood crimson (Violence),
-  bone/tar (Fraud), blue-white ice (Treachery).
-- **Tone:** deadpan, satirical, melancholy. Sinners are ordinary modern
-  people — brides on escalators, monks on platforms, kissing couples,
-  commuters asleep on benches. Hell is bureaucratic and mundane before it is
-  monstrous.
-- **Signage:** gothic banner plaques (like the "LIMBO" ribbon in the
-  reference) are the only environmental text, naming each circle as a level
-  title card.
+### 4. Levels — nine circles plus prologue
 
-### 4. Structure — nine circles, nine mechanics
+Each circle = one level (15–25 minutes): **one sin, one canonical guardian,
+one hazard, one mechanical twist on the fixed verbs**. Complete this table in
+the design document:
 
-Each circle = one level (15–25 minutes), defined by **one sin, one hazard, one
-mechanical twist, one famous damned soul as a set-piece encounter**. Fill in
-this table completely in the design document:
+| Lvl | Circle    | Guardian / encounter (from the poem) | Environment (metro stratum)                    | Mechanical twist |
+|-----|-----------|--------------------------------------|------------------------------------------------|------------------|
+| 0   | Dark Wood & Gate | Three beasts; Charon at Acheron | Overgrown surface station at night; flooded turnstile hall as the Acheron crossing | Tutorial: all verbs; scripted unwinnable chase |
+| 1   | Limbo     | Minos judging at the far exit        | Endless terminus platform; trains that never depart | Crowds of the damned block and reveal paths |
+| 2   | Lust      | The eternal storm                    | Wind-torn ventilation shafts; souls blown past like paper | Gale physics alter every jump and landing |
+| 3   | Gluttony  | Cerberus                             | Flooded, reeking concourse under black rain    | Crawl through filth to stay unseen; mud slows every verb |
+| 4   | Greed     | Plutus; the boulder-rollers          | Vault caverns of hoarded cargo                 | Push/pull weights whose momentum can crush |
+| 5   | Wrath     | Phlegyas' ferry across the Styx; walls of Dis, the Furies | Drowned parking levels; the Styx as black floodwater | Balance and stealth on the ferry; hide from the wrathful who grab at the hull |
+| 6   | Heresy    | The burning tombs                    | An archive level of red-hot filing-cabinet sepulchers | Fire timing; light and darkness as the navigation puzzle |
+| 7   | Violence  | Minotaur, Centaurs, the wood of suicides, raining fire; Geryon at the cliff | Boiling utility mains, a forest of dead wiring, burning sand | Chase set-pieces; end-of-level descent riding Geryon (scripted flight screen) |
+| 8   | Fraud     | The Malebranche; the ten bolgias     | Ten collapsing sub-basements descended in sequence | Terrain that lies — false floors, mirrored rooms, pursued by the Malebranche |
+| 9   | Treachery | Antaeus lowers the pair; Lucifer     | The frozen machine heart at the bottom of everything | Ice traction; final climb down Lucifer's body with the gravity flip |
 
-| # | Circle    | Environment (metro-stratum theme)                  | Signature mechanic |
-|---|-----------|-----------------------------------------------------|--------------------|
-| 1 | Limbo     | Endless terminus platform; trains that never leave  | Tutorial; crowds block/reveal paths |
-| 2 | Lust      | Wind-torn ventilation shafts; paper storms          | Gale physics alter every jump |
-| 3 | Gluttony  | Flooded food courts; acid rain from burst pipes     | Rising/falling filth tides, timed routes |
-| 4 | Greed     | Bank-vault caverns; hoarded cargo crushing halls    | Pushable weights that attract sinners |
-| 5 | Wrath     | Drowned parking levels, the Styx as black floodwater| Stealth vs. the wrathful; ferry crossing (Phlegyas) |
-| 6 | Heresy    | Burning archive/server farm; tombs of filing cabinets| Fire timing, light/dark navigation |
-| 7 | Violence  | Boiling utility mains; a forest of hanged marionettes| Chase set-pieces; the Minotaur boss |
-| 8 | Fraud     | Ten collapsing sub-basements (the Malebolge) as a descending gauntlet | Terrain that lies — false floors, mirrored rooms |
-| 9 | Treachery | The frozen machine heart of the city; Lucifer as a colossal, three-faced generator | Ice traction; climbing Lucifer's body to exit (as Dante did) |
-
-### 5. Narrative beats to plan
-
-- Virgil's introduction (Limbo), three cooperative set-pieces (circles 3, 5, 8),
-  and his departure at the edge of Circle 9 — he cannot go further, and the
-  player must face Treachery alone.
-- Recurring silent motifs: Dante's briefcase (abandoned in Circle 4, in the
-  hoard), his reflection aging in windows of passing ghost-trains, Beatrice
-  glimpsed on opposite platforms as an unreachable figure in red.
-- Ending: Dante climbs down Lucifer's frozen body, gravity inverts, and he
-  emerges on an ordinary morning platform — *"and thence we came forth to see
-  again the stars"* rendered as a single sunrise frame. No text.
-
-### 6. Deliverables
-
-Produce, in order:
+### 5. Deliverables
 
 1. **One-page concept** — logline, pillars, target platforms, scope estimate.
-2. **Vertical-slice spec** — full breakdown of Circle 1 (Limbo) and Circle 2
-   (Lust): screen-by-screen layouts, hazards, checkpoints, deaths, and the
-   first Virgil encounter.
-3. **Nine-circle progression table** — the table above, completed with pacing,
-   difficulty curve, and the famous soul featured in each circle.
-4. **Art & audio bible** — palette hex values per circle, character sprite
-   specs, animation priorities (rotoscoped-feel key poses), and a music brief
-   (sparse, diegetic sound; music only at circle transitions, as in
-   *Another World*).
-5. **Risk list** — the three hardest design problems (e.g., wordless puzzle
-   clarity, death-repetition fatigue, boss readability in pixel scale) and a
-   mitigation for each.
+2. **Vertical-slice spec** — screen-by-screen breakdown of the Prologue and
+   Circle 1: layouts, hazards, checkpoints, every death and what it teaches,
+   and Virgil's first three silent interactions.
+3. **Completed level table** — the table above with pacing, difficulty curve,
+   and each circle's canonical encounter staged as a set-piece.
+4. **Art & audio bible** — palette hex values per circle, sprite specs,
+   animation priorities (rotoscoped-feel key poses for Dante and Virgil), and
+   a music brief: sparse, diegetic sound, music only at circle-transition
+   title cards.
+5. **Risk list** — the three hardest design problems (wordless puzzle
+   clarity, death-repetition fatigue, staging famous encounters readably in
+   pixel scale) and a mitigation for each.
 
-### 7. Constraints
+### 6. Constraints
 
 - Solo-or-small-team scope: ~3–5 hours of gameplay, 2D, single resolution
   target, no procedural content.
-- Rating target T/PEGI-16: stylized, satirical depiction of sin; no gore
-  fetishism.
-- Every screen must answer: *what kills me here, what does it teach, and what
-  does it say about this sin?* If a screen answers none, cut it.
-
----
-
-## Why this version of the prompt is better
-
-The original prompt — *"plan a game like Another World 1991, use this
-screenshot from Inferno, game called Inferno, it follows Dante's 9 circles"* —
-named the influences but not the extractable rules. This version:
-
-- **Decodes "like Another World"** into five testable design pillars (no HUD,
-  cinematic continuity, death-as-teacher, fixed verb set, wordless companion)
-  instead of leaving the reference to interpretation.
-- **Decodes the screenshot** into an art direction (hell as a cutaway modern
-  metro stratum, one dominant color per circle, satirical mundane sinners)
-  rather than just "use this image."
-- **Turns "9 circles" into structure**: one sin = one level = one mechanic =
-  one set-piece, with a fill-in table that forces concrete decisions.
-- **Specifies deliverables and constraints**, so the output is a scoped,
-  buildable plan instead of an open-ended brainstorm.
+- Faithfulness rule: if a scene isn't in the poem, it isn't in the game.
+  Every set-piece must be traceable to a canto.
+- Every screen must answer: *what kills me here, what does it teach, and
+  which lines of the poem is it staging?* If a screen answers none, cut it.
