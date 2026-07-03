@@ -12,6 +12,13 @@ build. No combat, ever. Art targets a flat-vector look in the spirit of the
 silhouettes, no outlines. Everything beyond the Prologue in these documents
 is roadmap, not commitment.
 
+## Play the slice
+
+Open [`game/index.html`](game/index.html) in a browser — no build step, no
+dependencies. Arrow keys move, **Shift** runs, **Space** jumps, **↓**
+crouches. Four screens: the park, the leopard, the lion chase, and the
+she-wolf. Death restarts the screen instantly; that's the design.
+
 ## Documents
 
 - [`PROMPT.md`](PROMPT.md) — the design prompt this project executes.
