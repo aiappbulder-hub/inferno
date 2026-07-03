@@ -1,4 +1,8 @@
-# INFERNO — Nine-Circle Progression
+# INFERNO — Nine-Circle Progression (Roadmap)
+
+> **Hobby-scope note:** this table is the long-term map, not a plan of
+> record. Release one is the Prologue slice only; circles get built one at
+> a time, if at all, after the slice proves the idea.
 
 The completed level table required by the brief: each circle's canonical
 guardian in modern dress, its metro stratum, its mechanical twist on the

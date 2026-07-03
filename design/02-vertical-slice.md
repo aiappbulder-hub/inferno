@@ -1,5 +1,9 @@
 # INFERNO — Vertical-Slice Spec: Prologue & Circle 1
 
+> **Hobby-scope note:** release one is the Prologue only (P1–P9), shipped
+> as a free browser build. Limbo (L1–L8) is designed here so the Prologue
+> is built pointing somewhere, but it is roadmap — not part of the slice.
+
 Screen-by-screen breakdown of the first two levels. Conventions:
 
 - **Screens** are fixed-camera stages (occasional scripted pans), lettered

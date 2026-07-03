@@ -62,7 +62,7 @@ long retries can curdle the tone from dread to irritation.
 ## Risk 3 — Staging famous encounters readably at pixel scale
 
 **Problem.** The game's promise is the poem: Francesca, Farinata, Ulysses,
-Ugolino, Lucifer — rendered in ~40 px characters with no words. Done badly,
+Ugolino, Lucifer — rendered as small flat-shape figures with no words. Done badly,
 the anthology of the damned becomes indistinct background NPCs and the
 adaptation evaporates. The guardians have scale to lean on; the famous souls
 are human-sized and must land through acting alone.

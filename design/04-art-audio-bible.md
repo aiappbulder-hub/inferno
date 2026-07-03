@@ -1,12 +1,22 @@
 # INFERNO — Art & Audio Bible
 
+**Style target: flat vector, in the spirit of the *Another World* 20th
+Anniversary remaster.** Smooth flat polygon shapes, soft vertical gradients,
+heavy silhouettes, rim light, **no outlines**. Chosen deliberately for a
+solo hobby developer: flat shapes are fast to produce in any vector tool,
+animate by transform rather than redraw, and scale to any resolution.
+
 ## 1. Global visual rules
 
-- **Internal resolution:** 640×360, integer-scaled. Side-view dioramic
-  screens; parallax limited to 3 layers (far stratum wall / play plane /
-  foreground silhouette) so screens stay readable as single compositions.
-- **Pixel discipline:** no mixed pixel sizes, no rotation artifacts;
-  sub-pixel animation reserved for hero characters only.
+- **Rendering:** resolution-independent vector (SVG or engine polygons),
+  authored on a 16:9 stage (design coordinates 1280×720). Side-view
+  dioramic screens; parallax limited to 3 layers (far stratum wall / play
+  plane / foreground silhouette) so screens stay readable as single
+  compositions.
+- **Shape discipline:** no outlines, no texture fills. Forms are built from
+  a few large flat polygons; detail comes from silhouette and one lit edge,
+  never from interior drawing. Gradients are broad and vertical (walls,
+  sky, water) — never on characters.
 - **One dominant color per circle** (below). Within a circle, hue may not
   leave its family; contrast comes from value, not palette breadth. The
   *only* cross-circle constants: Virgil's uniform gray, Dante's coat, and
@@ -17,7 +27,7 @@
   fills three tunnel mouths; Minos's tail spans the hall; Lucifer *is* the
   final screen).
 - **Signage** is the one sanctioned text surface: pictogram-first, cream on
-  the circle color, gothic ribbon plaques for circle title cards only.
+  the circle color, austere letterspaced caps for circle title cards only.
 
 ## 2. Palette — one swatch card per circle
 
@@ -42,8 +52,10 @@ cream (constant). Each circle ships as a 12-color ramp built from these.
 ## 3. Characters
 
 ### Dante
-- **Size:** 40 px tall. Overcoat, loosened tie, tired posture — readable at
-  one glance as *a man on his way home*.
+- **Size:** ~1/7 of screen height. Overcoat, loosened tie, tired posture —
+  readable at one glance as *a man on his way home*. Built as a flat-shape
+  cutout rig (head / torso / two arms / two legs as separate polygons) so
+  animation is joint transforms, not frame-by-frame redraw.
 - **Animation priorities (rotoscoped-feel key poses, in production order):**
   1. Run cycle (10 frames) — the game's signature motion; weight in the
      coat.
@@ -56,7 +68,8 @@ cream (constant). Each circle ships as a 12-color ramp built from these.
      thrice: Acheron, Francesca, and the final grate climb-out exhaustion).
 
 ### Virgil
-- **Size:** 42 px — one head taller, always slightly ahead.
+- **Size:** one head taller than Dante, always slightly ahead. Same cutout
+  rig, shared skeleton.
 - **Kit:** gray uniform, brass buttons, peaked cap (the crowd landmark),
   hand lamp, ticket punch. The *ticket* gets its own 2-frame glint so the
   threshold gag lands on every guardian.
@@ -66,11 +79,11 @@ cream (constant). Each circle ships as a 12-color ramp built from these.
   animation, budgeted like a boss.
 
 ### The damned (crowd system)
-- 24 civilian archetypes (commuter, bride, monk, kissing couple, tourist,
-  child — reference-image cast), 3 palette-slots each so every circle
-  re-dresses the same humanity in its own color. Crowd animation is
-  2-frame idle + surge step; individuality comes from silhouette, not
-  frame count.
+- A dozen civilian archetypes (commuter, bride, monk, kissing couple,
+  tourist, child — reference-image cast), 3 palette-slots each so every
+  circle re-dresses the same humanity in its own color. Crowd figures are
+  near-silhouettes with one rim-lit edge; individuality comes from
+  silhouette shape, not detail.
 
 ### Guardians
 - Each guardian is a one-off rig sized to its screen, budgeted as

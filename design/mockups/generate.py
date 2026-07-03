@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""INFERNO concept mockups — Another World (1991) visual language.
+"""INFERNO concept mockups — flat-vector, Another World remaster style.
 
-Big flat color planes, banded gradients with dithered seams, heavy
-silhouettes, slender flat-shaded figures, rim light, banded light cones.
-Palettes from design/04-art-audio-bible.md, darkened toward AW contrast.
+Smooth flat polygon shapes, soft vertical gradients, heavy silhouettes,
+rim light, no outlines. Palettes from design/04-art-audio-bible.md.
 
-Renders at the game's internal grid (320x180), upscaled 4x to 1280x720.
+Scenes are authored in a 320x180 logical space, rendered supersampled at
+8x and downscaled to 1280x720 for smooth vector-like edges.
 
 Usage: python3 generate.py [outdir]
 """
@@ -16,8 +16,9 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-W, H = 320, 180
-SCALE = 4
+LW, LH = 320, 180          # logical stage
+RS = 8                     # supersample factor
+FW, FH = 1280, 720         # final output
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).parent
 
 
@@ -30,42 +31,71 @@ def shade(c, f):
     return tuple(max(0, min(255, int(v * f))) for v in c)
 
 
-def R(d, x, y, w, h, c):
-    if w > 0 and h > 0:
-        d.rectangle([x, y, x + w - 1, y + h - 1], fill=c)
+def mix(c0, c1, t):
+    return tuple(int(a + (b - a) * t) for a, b in zip(c0, c1))
 
 
-def bands(d, y0, y1, colors, x0=0, x1=W):
-    """Horizontal gradient bands with a dithered seam — the AW sky."""
-    n = len(colors)
-    for i, c in enumerate(colors):
-        ya = y0 + (y1 - y0) * i // n
-        yb = y0 + (y1 - y0) * (i + 1) // n
-        R(d, x0, ya, x1 - x0, yb - ya, c)
-        if i:  # checker-dither the seam upward
-            for x in range(x0, x1, 2):
-                d.point((x + (ya % 2), ya - 1), c)
+def P(pts):
+    return [(x * RS, y * RS) for x, y in pts]
 
 
-def speckle(d, x, y, w, h, c, density=0.06, seed=1):
-    rnd = random.Random(seed)
-    for _ in range(int(w * h * density)):
-        d.point((x + rnd.randrange(w), y + rnd.randrange(h)), c)
+def poly(d, pts, c):
+    d.polygon(P(pts), fill=c)
+
+
+def ell(d, x0, y0, x1, y1, c):
+    d.ellipse([x0 * RS, y0 * RS, x1 * RS, y1 * RS], fill=c)
+
+
+def box(d, x, y, w, h, c):
+    d.rectangle([x * RS, y * RS, (x + w) * RS, (y + h) * RS], fill=c)
+
+
+def rbox(d, x, y, w, h, r, c):
+    d.rounded_rectangle([x * RS, y * RS, (x + w) * RS, (y + h) * RS],
+                        radius=r * RS, fill=c)
+
+
+def stroke(d, pts, c, w=1.0):
+    d.line(P(pts), fill=c, width=max(1, int(w * RS)), joint='curve')
+
+
+def vgrad(d, y0, y1, c0, c1, x0=0, x1=LW):
+    ry0, ry1 = int(y0 * RS), int(y1 * RS)
+    for ry in range(ry0, ry1):
+        t = (ry - ry0) / max(1, ry1 - ry0)
+        d.line([(x0 * RS, ry), (x1 * RS, ry)], fill=mix(c0, c1, t))
+
+
+def overlay(img, fn):
+    ov = Image.new('RGBA', img.size, (0, 0, 0, 0))
+    fn(ImageDraw.Draw(ov))
+    out = Image.alpha_composite(img.convert('RGBA'), ov).convert('RGB')
+    img.paste(out)
 
 
 def poly_a(img, pts, color, a):
-    ov = Image.new('RGBA', img.size, (0, 0, 0, 0))
-    ImageDraw.Draw(ov).polygon(pts, fill=color + (a,))
-    img.paste(Image.alpha_composite(img.convert('RGBA'), ov).convert('RGB'))
+    overlay(img, lambda od: od.polygon(P(pts), fill=color + (a,)))
 
 
 def glow(img, cx, cy, r, color, alpha=70):
-    ov = Image.new('RGBA', img.size, (0, 0, 0, 0))
-    od = ImageDraw.Draw(ov)
-    for rr in range(r, 0, -2):
-        a = int(alpha * (1 - rr / r) ** 1.4) + 4
-        od.ellipse([cx - rr, cy - rr, cx + rr, cy + rr], fill=color + (a,))
-    img.paste(Image.alpha_composite(img.convert('RGBA'), ov).convert('RGB'))
+    def fn(od):
+        for rr in range(int(r * RS), 0, -RS // 2):
+            a = int(alpha * (1 - rr / (r * RS)) ** 1.5) + 3
+            od.ellipse([cx * RS - rr, cy * RS - rr,
+                        cx * RS + rr, cy * RS + rr], fill=color + (a,))
+    overlay(img, fn)
+
+
+def dust(img, x, y, w, h, color, n, size=0.5, alpha=150, seed=1):
+    rnd = random.Random(seed)
+    def fn(od):
+        for _ in range(n):
+            px = (x + rnd.random() * w) * RS
+            py = (y + rnd.random() * h) * RS
+            s = size * RS * (0.5 + rnd.random())
+            od.ellipse([px, py, px + s, py + s], fill=color + (alpha,))
+    overlay(img, fn)
 
 
 SKIN = hx('C9986B')
@@ -74,46 +104,49 @@ VIRGIL_GRAY = hx('565B63')
 CREAM = hx('EFE3C0')
 
 
-def figure(d, x, y, h, shirt, pants=None, skin=SKIN, hair=(20, 20, 20),
+def figure(d, x, y, h, shirt, pants=None, skin=SKIN, hair=(22, 20, 20),
            cap=None, pose='stand', rim=None, rim_side=1):
-    """Slender AW-proportioned figure. x center, y feet, h total height."""
+    """Flat-shape cutout figure. x center, y feet, h total height."""
     pants = pants or shade(shirt, 0.55)
-    head = max(3, int(h * 0.16))
-    legs = int(h * 0.46)
-    torso = h - head - legs
-    top = y - h
-    hw = max(1, int(h * 0.07))
-    R(d, x - hw, top, hw * 2 + 1, head, skin)
+    legs, torso = h * 0.46, h * 0.38
+    hip, sh = y - legs, y - legs - torso
+    # torso, shoulders wider than hips
+    poly(d, [(x - h * .11, sh), (x + h * .11, sh),
+             (x + h * .075, hip), (x - h * .075, hip)], shirt)
+    # head + neck
+    hr = h * 0.075
+    hcy = sh - hr - h * 0.015
+    box(d, x - h * .02, sh - h * .03, h * .04, h * .04, skin)
+    ell(d, x - hr, hcy - hr * 1.15, x + hr, hcy + hr * 1.15, skin)
     if cap:
-        R(d, x - hw - 1, top - 1, hw * 2 + 3, 2, cap)
+        d.pieslice([int((x - hr * 1.15) * RS), int((hcy - hr * 1.5) * RS),
+                    int((x + hr * 1.15) * RS), int((hcy + hr * 0.9) * RS)],
+                   180, 360, fill=cap)
+        box(d, x - hr * 1.3, hcy - hr * 0.35, hr * 2.6, hr * 0.35, cap)
     else:
-        R(d, x - hw, top, hw * 2 + 1, max(1, head // 3), hair)
-    tw = max(2, int(h * 0.11))
-    d.polygon([(x - tw, top + head), (x + tw, top + head),
-               (x + tw - 1, top + head + torso), (x - tw + 1, top + head + torso)],
-              fill=shirt)
-    lw = max(1, int(h * 0.05))
-    ly = y - legs
-    if pose == 'walk':
-        d.polygon([(x - 1, ly), (x + 1, ly), (x - tw - 2, y), (x - tw - 3, y)],
-                  fill=pants)
-        d.polygon([(x - 1, ly), (x + 1, ly), (x + tw + 2, y), (x + tw + 1, y)],
-                  fill=pants)
-    else:
-        R(d, x - tw + 1, ly, lw + 1, legs, pants)
-        R(d, x + tw - lw - 1, ly, lw + 1, legs, pants)
-    if rim:  # one lit edge — the AW rim light
-        d.line([(x + rim_side * tw, top + head),
-                (x + rim_side * (tw - 1), top + head + torso)], fill=rim)
+        d.pieslice([int((x - hr) * RS), int((hcy - hr * 1.2) * RS),
+                    int((x + hr) * RS), int((hcy + hr * 0.7) * RS)],
+                   180, 360, fill=hair)
+    # legs
+    st = h * 0.16 if pose == 'walk' else h * 0.045
+    poly(d, [(x - h * .07, hip), (x - h * .005, hip),
+             (x - st + h * .02, y), (x - st - h * .02, y)], pants)
+    poly(d, [(x + h * .005, hip), (x + h * .07, hip),
+             (x + st + h * .02, y), (x + st - h * .02, y)], pants)
+    # near arm
+    poly(d, [(x + rim_side * h * .06, sh + h * .02),
+             (x + rim_side * h * .10, sh + h * .03),
+             (x + rim_side * h * .075, hip - h * .01),
+             (x + rim_side * h * .045, hip - h * .02)], shade(shirt, 0.85))
+    if rim:
+        stroke(d, [(x + rim_side * h * .105, sh + h * .01),
+                   (x + rim_side * h * .07, hip)], rim, 0.45)
 
 
-def silhouette(d, x, y, h, c, pose='stand', hunch=False):
-    if hunch:
-        d.polygon([(x - int(h * .22), y), (x - int(h * .12), y - int(h * .6)),
-                   (x + int(h * .1), y - h), (x + int(h * .25), y - int(h * .5)),
-                   (x + int(h * .18), y)], fill=c)
-    else:
-        figure(d, x, y, h, c, pants=c, skin=c, hair=c, pose=pose)
+def hunched(d, x, y, h, c):
+    poly(d, [(x - h * .3, y), (x - h * .18, y - h * .55),
+             (x + h * .05, y - h), (x + h * .3, y - h * .45), (x + h * .22, y)], c)
+    ell(d, x - h * .05, y - h * 1.08, x + h * .22, y - h * .82, c)
 
 
 FONT = {
@@ -134,349 +167,337 @@ FONT = {
 }
 
 
-def text_width(s, sc):
-    return sum((len(FONT[ch][0]) + 1) * sc for ch in s) - sc
-
-
-def text_px(d, x, y, s, c, sc=1):
-    cx = x
-    for ch in s:
-        rows = FONT[ch]
-        for j, row in enumerate(rows):
+def label(d, cx, y, s, c=CREAM, sc=1.6):
+    widths = [(len(FONT[ch][0]) + 1) * sc for ch in s]
+    x = cx - (sum(widths) - sc) / 2
+    for ch, wch in zip(s, widths):
+        for j, row in enumerate(FONT[ch]):
             for i, bit in enumerate(row):
                 if bit == '1':
-                    R(d, cx + i * sc, y + j * sc, sc, sc, c)
-        cx += (len(rows[0]) + 1) * sc
+                    box(d, x + i * sc + 0.3, y + j * sc + 0.3, sc, sc, (0, 0, 0))
+                    box(d, x + i * sc, y + j * sc, sc, sc, c)
+        x += wch
 
 
-def label(d, cx, y, s, c=CREAM, sc=1):
-    """Austere AW title: plain letterspaced caps with a hard shadow."""
-    x = cx - text_width(s, sc) // 2
-    text_px(d, x + 1, y + 1, s, (0, 0, 0), sc)
-    text_px(d, x, y, s, c, sc)
-
-
-def cable(d, x0, x1, y0, sag, c):
-    for x in range(x0, x1):
+def cable(d, x0, x1, y0, sag, c, w=0.7):
+    pts = []
+    for x in range(x0, x1 + 1, 4):
         t = (x - x0) / max(1, x1 - x0)
-        y = y0 + sag * math.sin(math.pi * t)
-        d.point((x, int(y)), c)
-        d.point((x, int(y) + 1), c)
+        pts.append((x, y0 + sag * math.sin(math.pi * t)))
+    stroke(d, pts, c, w)
 
 
 def canvas(bg):
-    img = Image.new('RGB', (W, H), bg)
+    img = Image.new('RGB', (LW * RS, LH * RS), bg)
     return img, ImageDraw.Draw(img)
 
 
 def save(img, name):
     OUT.mkdir(parents=True, exist_ok=True)
-    img.resize((W * SCALE, H * SCALE), Image.NEAREST).save(OUT / name)
+    img.resize((FW, FH), Image.LANCZOS).save(OUT / name)
     print(name)
 
 
 # -------------------------------------------------------------- Acheron ----
 def scene_acheron():
     img, d = canvas(hx('050A07'))
-    bands(d, 0, 115, [hx('030604'), hx('050A07'), hx('081009'), hx('0A140B')])
+    vgrad(d, 0, 112, hx('020503'), hx('0C1710'))
 
-    # angular ceiling mass
-    d.polygon([(0, 0), (W, 0), (W, 10), (250, 16), (180, 9), (90, 18),
-               (40, 11), (0, 16)], fill=(2, 4, 3))
-    for (x0, x1, y0, sag) in [(0, 130, 6, 30), (100, 250, 2, 40),
-                              (200, 320, 8, 26)]:
+    # ceiling mass, ragged
+    poly(d, [(0, 0), (LW, 0), (LW, 9), (250, 15), (180, 8), (90, 17),
+             (40, 10), (0, 15)], (2, 4, 3))
+    for (x0, x1, y0, sag) in [(0, 130, 5, 30), (100, 250, 1, 40),
+                              (200, 320, 7, 26)]:
         cable(d, x0, x1, y0, sag, (2, 4, 3))
 
-    # far pillar slabs, barely lighter than the dark
+    # far pillar slabs
     for px in (48, 122, 208, 284):
-        d.polygon([(px, 18), (px + 10, 18), (px + 8, 112), (px - 2, 112)],
-                  fill=hx('0B150C'))
+        poly(d, [(px, 16), (px + 10, 16), (px + 8, 112), (px - 2, 112)],
+             hx('0A130B'))
 
-    # dead departures board, three dim glyphs still burning
-    R(d, 20, 22, 64, 14, (3, 6, 4))
-    for gx in (26, 44, 66):
-        R(d, gx, 27, 6, 2, hx('4A5713'))
+    # dead departures board
+    rbox(d, 20, 21, 64, 14, 1, (3, 6, 4))
+    for gx in (27, 45, 66):
+        box(d, gx, 26.5, 6, 1.6, hx('4A5713'))
 
-    # the lamp: point, halo, banded cone falling on the deck
+    # the lamp and its cone
     lx, ly = 131, 82
-    glow(img, lx, ly, 40, hx('E8A33D'), alpha=60)
-    d = ImageDraw.Draw(img)
-    poly_a(img, [(lx - 2, ly), (lx + 3, ly), (lx + 26, 112), (lx - 26, 112)],
-           hx('E8A33D'), 34)
+    glow(img, lx, ly, 42, hx('E8A33D'), alpha=58)
+    poly_a(img, [(lx - 2, ly), (lx + 3, ly), (lx + 27, 112), (lx - 27, 112)],
+           hx('E8A33D'), 30)
     poly_a(img, [(lx - 1, ly), (lx + 2, ly), (lx + 14, 112), (lx - 14, 112)],
-           hx('F2CE7A'), 30)
+           hx('F2CE7A'), 26)
     d = ImageDraw.Draw(img)
 
     # black water
-    R(d, 0, 112, W, 68, (2, 5, 4))
+    vgrad(d, 112, 180, (3, 7, 5), (1, 4, 3))
     rnd = random.Random(5)
-    for _ in range(36):
-        x, y = rnd.randrange(W), 116 + rnd.randrange(60)
-        d.line([(x, y), (x + rnd.randrange(6, 18), y)], fill=hx('0F2C1F'))
-    for i, y in enumerate(range(114, 142, 4)):     # lamp reflection
-        w = 18 - i * 2
-        d.line([(lx - w // 2, y), (lx + w // 2, y)], fill=hx('6E5713'))
+    for _ in range(30):
+        x, y = rnd.randrange(LW), 116 + rnd.randrange(60)
+        stroke(d, [(x, y), (x + rnd.randrange(7, 20), y)], hx('0F2C1F'), 0.5)
+    for i, y in enumerate(range(115, 143, 4)):       # lamp reflection
+        w = 18 - i * 2.2
+        stroke(d, [(lx - w / 2, y), (lx + w / 2, y)], hx('6E5713'), 0.6)
 
     # drowned turnstiles
     for tx in (30, 262, 300):
-        d.polygon([(tx, 98), (tx + 5, 98), (tx + 4, 114), (tx + 1, 114)],
-                  fill=hx('141B18'))
-        d.line([(tx - 6, 101), (tx + 11, 99)], fill=hx('1C2620'))
+        poly(d, [(tx, 97), (tx + 5, 97), (tx + 4, 114), (tx + 1, 114)],
+             hx('121A15'))
+        stroke(d, [(tx - 6, 101), (tx + 11, 98.5)], hx('1B2620'), 0.8)
 
-    # the flat-car: black slab, one lamplit rim
-    d.polygon([(82, 104), (214, 104), (218, 114), (78, 114)], fill=(3, 5, 4))
-    d.line([(96, 104), (176, 104)], fill=hx('6E5713'))
+    # flat-car, one lamplit rim
+    poly(d, [(82, 104), (214, 104), (218, 114), (78, 114)], (3, 5, 4))
+    stroke(d, [(96, 104), (178, 104)], hx('6E5713'), 0.6)
 
-    # ferried souls, hunched silhouettes with a breath of rim light
-    for sx, sh in ((100, 13), (114, 15), (127, 12)):
-        silhouette(d, sx, 104, sh, hx('10151A'), hunch=True)
-        d.point((sx + 3, 104 - sh), fill=hx('3A4148'))
+    # ferried souls
+    for sx, sh_ in ((100, 13), (114, 15), (127, 12)):
+        hunched(d, sx, 104, sh_, hx('0E1318'))
 
-    # Virgil raising the lamp; Dante balancing beside him
-    figure(d, 138, 104, 26, VIRGIL_GRAY, cap=hx('2A2F36'),
+    # Virgil raising the lamp; Dante balancing
+    figure(d, 140, 104, 27, VIRGIL_GRAY, cap=hx('2A2F36'),
            rim=hx('E8A33D'), rim_side=-1)
-    d.line([(135, 90), (131, 84)], fill=VIRGIL_GRAY, width=2)
-    R(d, lx - 2, ly - 1, 4, 5, hx('E8A33D'))
-    d.point((lx, ly - 2), fill=hx('F2E3B3'))
-    figure(d, 158, 104, 26, DANTE_COAT, pose='walk', rim=hx('B37A2E'),
+    stroke(d, [(137, 91), (132, 84)], VIRGIL_GRAY, 1.1)
+    rbox(d, lx - 2, ly - 2, 4, 5.5, 1, hx('E8A33D'))
+    ell(d, lx - 0.8, ly - 3, lx + 0.8, ly - 1.6, hx('F2E3B3'))
+    figure(d, 160, 104, 26, DANTE_COAT, pose='walk', rim=hx('B37A2E'),
            rim_side=-1)
 
-    # CHARON — a tall angular silhouette, two coals for eyes
+    # CHARON — tall silhouette, two coals for eyes
     cx = 194
-    d.polygon([(cx - 3, 58), (cx + 5, 58), (cx + 9, 88), (cx + 12, 104),
-               (cx - 10, 104), (cx - 6, 84)], fill=(4, 7, 5))
-    d.polygon([(cx - 6, 58), (cx + 8, 58), (cx + 5, 54), (cx - 3, 54)],
-              fill=(4, 7, 5))                       # peaked cap
-    d.line([(cx - 6, 62), (cx - 9, 102)], fill=hx('141B18'))  # rim of robe
-    d.point((cx, 60), fill=hx('E8A33D'))            # the eyes
-    d.point((cx + 3, 60), fill=hx('E8A33D'))
-    d.line([(cx + 7, 70), (cx + 27, 130)], fill=(2, 4, 3), width=2)  # pole
+    poly(d, [(cx - 3, 57), (cx + 5, 57), (cx + 9, 86), (cx + 13, 104),
+             (cx - 11, 104), (cx - 6, 82)], (4, 7, 5))
+    poly(d, [(cx - 7, 58), (cx + 9, 58), (cx + 5, 53), (cx - 3, 53)], (4, 7, 5))
+    ell(d, cx - 0.7, 59.3, cx + 0.7, 60.7, hx('E8A33D'))
+    ell(d, cx + 2.3, 59.3, cx + 3.7, 60.7, hx('E8A33D'))
+    glow(img, cx + 1.5, 60, 5, hx('E8A33D'), alpha=60)
+    d = ImageDraw.Draw(img)
+    stroke(d, [(cx + 7, 68), (cx + 28, 130)], (2, 4, 3), 1.1)
 
     # a hand of the drowned at the deck edge
-    d.polygon([(76, 112), (84, 108), (86, 112)], fill=hx('10151A'))
+    poly(d, [(76, 112), (84, 107), (86, 112)], hx('0E1318'))
 
-    speckle(d, 100, 46, 66, 56, hx('6E5713'), 0.010, seed=3)  # motes
+    dust(img, 100, 46, 66, 56, hx('E8A33D'), 40, 0.35, 90, seed=3)
     return img
 
 
 # ---------------------------------------------------------------- Limbo ----
 def scene_limbo():
     img, d = canvas(hx('5E1A0F'))
-    bands(d, 0, 70, [hx('47130B'), hx('531710'), hx('5E1A0F'), hx('6B2013')])
-
-    # black ceiling structure
-    d.polygon([(0, 0), (W, 0), (W, 8), (0, 8)], fill=(12, 3, 2))
+    vgrad(d, 0, 70, hx('40100A'), hx('6B2013'))
+    box(d, 0, 0, LW, 8, (12, 3, 2))
     for bx in (60, 160, 260):
-        d.polygon([(bx - 2, 8), (bx + 2, 8), (bx + 6, 18), (bx - 6, 18)],
-                  fill=(12, 3, 2))
+        poly(d, [(bx - 2, 8), (bx + 2, 8), (bx + 6, 18), (bx - 6, 18)],
+             (12, 3, 2))
 
-    # the ghost train: flat planes, no detail but the burning windows
-    R(d, 0, 58, W, 50, hx('236872'))
-    R(d, 0, 58, W, 6, hx('194C54'))
-    R(d, 0, 100, W, 8, hx('0F2A30'))
-    wins = list(range(10, W, 56))
+    # the ghost train
+    vgrad(d, 58, 108, hx('27717C'), hx('1D5660'))
+    box(d, 0, 58, LW, 5, hx('194C54'))
+    box(d, 0, 100, LW, 8, hx('0F2A30'))
+    wins = list(range(10, LW, 56))
     for x in wins:
-        R(d, x, 68, 26, 18, hx('E8D9A0'))
+        rbox(d, x, 68, 26, 18, 2, hx('E8D9A0'))
         if (x // 56) % 2 == 0:                       # a passenger, seated
-            R(d, x + 7, 74, 5, 12, hx('194C54'))
-            R(d, x + 8, 71, 3, 4, hx('194C54'))
+            ell(d, x + 7, 70.5, x + 12, 75.5, hx('194C54'))
+            rbox(d, x + 6, 74, 7, 12, 1.5, hx('194C54'))
     for x in (122, 262):                             # sealed doors
-        R(d, x, 64, 16, 44, hx('1B535C'))
-        d.line([(x + 8, 64), (x + 8, 107)], fill=hx('0F2A30'))
+        rbox(d, x, 64, 16, 44, 1.5, hx('1B535C'))
+        stroke(d, [(x + 8, 64), (x + 8, 108)], hx('0F2A30'), 0.6)
 
-    # window light falling across the platform — banded pools
+    # window light pools on the platform
     for x in wins:
-        poly_a(img, [(x - 1, 87), (x + 27, 87), (x + 36, 113), (x - 12, 113)],
-               hx('E8D9A0'), 26)
-        poly_a(img, [(x + 3, 87), (x + 23, 87), (x + 28, 113), (x - 3, 113)],
-               hx('E8D9A0'), 20)
+        poly_a(img, [(x - 1, 86), (x + 27, 86), (x + 38, 116), (x - 13, 116)],
+               hx('E8D9A0'), 22)
+        poly_a(img, [(x + 3, 86), (x + 23, 86), (x + 30, 116), (x - 4, 116)],
+               hx('E8D9A0'), 16)
     d = ImageDraw.Draw(img)
 
-    # platform slab and the cutaway dark below
-    R(d, 0, 108, W, 20, hx('8E2B1C'))
-    d.line([(0, 108), (W, 108)], fill=hx('B33A26'))
-    R(d, 0, 128, W, 52, (16, 4, 2))
-    d.polygon([(0, 128), (W, 128), (W, 132), (240, 130), (150, 134),
-               (60, 130), (0, 133)], fill=(16, 4, 2))  # ragged cut edge
-    speckle(d, 0, 132, W, 46, (35, 9, 5), 0.05, seed=7)
-    # stairwell down — rose light of the next circle rising
-    R(d, 250, 128, 40, 52, (7, 2, 1))
-    glow(img, 270, 184, 30, hx('C4788A'), alpha=80)
+    # platform slab and the dark below
+    vgrad(d, 108, 128, hx('9A3220'), hx('792415'))
+    stroke(d, [(0, 108), (LW, 108)], hx('C24630'), 0.6)
+    poly(d, [(0, 128), (LW, 128), (LW, 180), (0, 180)], (16, 4, 2))
+    poly(d, [(0, 128), (LW, 128), (LW, 131), (240, 129.5), (150, 133),
+             (60, 129.5), (0, 132)], (20, 5, 3))
+    dust(img, 0, 132, LW, 46, (60, 16, 9), 260, 0.4, 120, seed=7)
+    d = ImageDraw.Draw(img)
+    # stairwell down — the rose light of Lust rising
+    box(d, 250, 128, 40, 52, (7, 2, 1))
+    glow(img, 270, 186, 34, hx('C4788A'), alpha=80)
     d = ImageDraw.Draw(img)
     for i, sx in enumerate(range(254, 286, 8)):
-        R(d, sx, 140 + i * 9, 32 - (sx - 254), 3, hx('471523'))
+        box(d, sx, 140 + i * 9, 32 - (sx - 254), 3, hx('471523'))
 
-    # the waiting damned — backlit silhouettes facing the train
+    # the waiting damned, backlit
     rnd = random.Random(4)
     dark = hx('200906')
     for px in (58, 70, 96, 106, 150, 161, 172, 216, 227, 252, 300):
         h = 22 + rnd.randrange(5)
-        silhouette(d, px, 126, h, dark)
-        d.point((px + 2, 126 - h + 1), fill=hx('B37A2E'))   # window rim
-    # the bride, the one pale figure on the platform
+        figure(d, px, 126, h, dark, pants=dark, skin=dark, hair=dark,
+               rim=hx('B37A2E'), rim_side=1)
+    # the bride
     figure(d, 188, 126, 24, hx('D8CFC0'), pants=hx('D8CFC0'),
-           hair=(225, 218, 205))
+           hair=(228, 221, 208))
 
-    # Dante and Virgil walking the platform edge
-    figure(d, 24, 126, 26, DANTE_COAT, pose='walk', rim=hx('E8D9A0'))
-    figure(d, 42, 126, 27, VIRGIL_GRAY, cap=hx('33383F'), pose='walk',
+    # Dante and Virgil walking the platform
+    figure(d, 26, 126, 26, DANTE_COAT, pose='walk', rim=hx('E8D9A0'))
+    figure(d, 45, 126, 27, VIRGIL_GRAY, cap=hx('33383F'), pose='walk',
            rim=hx('E8D9A0'))
-    R(d, 47, 114, 3, 4, hx('4A4438'))                # doused lamp
+    rbox(d, 50, 114, 3, 4.5, 1, hx('4A4438'))        # doused lamp
 
-    # foreground column silhouettes, cropped by the frame
-    d.polygon([(0, 0), (16, 0), (13, 180), (0, 180)], fill=(10, 2, 1))
-    d.polygon([(W, 0), (W - 14, 0), (W - 11, 180), (W, 180)], fill=(10, 2, 1))
+    # foreground columns crop the frame
+    poly(d, [(0, 0), (17, 0), (13, 180), (0, 180)], (10, 2, 1))
+    poly(d, [(LW, 0), (LW - 15, 0), (LW - 11, 180), (LW, 180)], (10, 2, 1))
 
-    label(d, 160, 22, 'LIMBO', sc=2)
+    label(d, 160, 20, 'LIMBO', sc=2)
     return img
 
 
 # ----------------------------------------------------------------- Lust ----
 def scene_lust():
     img, d = canvas(hx('542E3F'))
-    bands(d, 0, 180, [hx('241019'), hx('301622'), hx('3F2230'),
-                      hx('542E3F'), hx('643850')])
+    vgrad(d, 0, 180, hx('200E17'), hx('6B3A50'))
 
-    # colossal duct mouths, pure silhouette
-    d.ellipse([-40, 26, 66, 132], fill=(18, 8, 14))
-    d.ellipse([-30, 36, 56, 122], fill=(7, 3, 6))
-    d.ellipse([264, 56, 386, 178], fill=(18, 8, 14))
-    d.ellipse([276, 68, 374, 166], fill=(7, 3, 6))
-    for ang in (0.4, 2.5, 4.6):                      # dead fan
-        d.line([(13, 79), (13 + int(30 * math.cos(ang)),
-                           79 + int(30 * math.sin(ang)))],
-               fill=(3, 1, 3), width=5)
+    # colossal duct mouths
+    ell(d, -40, 26, 66, 132, (18, 8, 14))
+    ell(d, -30, 36, 56, 122, (7, 3, 6))
+    ell(d, 264, 56, 386, 178, (18, 8, 14))
+    ell(d, 276, 68, 374, 166, (7, 3, 6))
+    for ang in (0.4, 2.5, 4.6):                      # the dead fan
+        stroke(d, [(13, 79), (13 + 30 * math.cos(ang),
+                              79 + 30 * math.sin(ang))], (3, 1, 3), 3)
 
-    # the gale — long unbroken streaks riding the whole frame
+    # the gale
     rnd = random.Random(9)
     for i in range(9):
         y0 = 16 + i * 17 + rnd.randrange(6)
         amp = rnd.randrange(4, 10)
         ph = rnd.random() * 6
-        for x in range(0, W):
-            if (x + i * 7) % 90 < 62:
-                y = y0 + amp * math.sin(x / 40 + ph)
-                d.point((x, int(y)), fill=hx('9C6A7C'))
+        pts = [(x, y0 + amp * math.sin(x / 40 + ph)) for x in range(0, LW, 5)]
+        for k in range(0, len(pts) - 8, 12):
+            stroke(d, pts[k:k + 9], hx('9C6A7C'), 0.45)
     for _ in range(16):                              # letters on the wind
-        x, y = rnd.randrange(W), 12 + rnd.randrange(120)
-        R(d, x, y, 3, 2, hx('D9D3C8'))
+        x, y = rnd.randrange(LW), 12 + rnd.randrange(120)
+        a = rnd.random() * math.pi
+        ca, sa = 1.6 * math.cos(a), 1.6 * math.sin(a)
+        poly(d, [(x - ca, y - sa), (x + sa, y - ca), (x + ca, y + sa),
+                 (x - sa, y + ca)], hx('D9D3C8'))
 
-    # souls blown two by two — elongated silhouettes
+    # souls blown two by two
     arc = [(52, 46), (92, 33), (134, 28), (176, 33), (216, 46), (250, 64)]
     for (x, y) in arc:
-        d.polygon([(x - 8, y + 2), (x + 6, y - 1), (x + 11, y + 1),
-                   (x + 6, y + 4), (x - 12, y + 5)], fill=(24, 11, 18))
-        R(d, x + 9, y - 2, 3, 3, (24, 11, 18))       # head leading
-        d.line([(x - 8, y + 2), (x + 6, y - 1)], fill=hx('9C6A7C'))  # rim
+        poly(d, [(x - 9, y + 2), (x + 6, y - 1.5), (x + 11, y + 1),
+                 (x + 6, y + 4), (x - 13, y + 5)], (24, 11, 18))
+        ell(d, x + 8, y - 3.5, x + 13, y + 1, (24, 11, 18))
+        stroke(d, [(x - 8, y + 2), (x + 6, y - 1)], hx('9C6A7C'), 0.45)
 
-    # walkways: black slabs, one lit edge
-    d.polygon([(0, 120), (128, 120), (132, 130), (0, 130)], fill=(12, 5, 9))
-    d.line([(0, 120), (128, 120)], fill=hx('8A5A6C'))
-    d.polygon([(186, 136), (320, 136), (320, 146), (182, 146)], fill=(12, 5, 9))
-    d.line([(186, 136), (320, 136)], fill=hx('8A5A6C'))
+    # walkways
+    poly(d, [(0, 120), (128, 120), (132, 130), (0, 130)], (12, 5, 9))
+    stroke(d, [(0, 120), (128, 120)], hx('8A5A6C'), 0.6)
+    poly(d, [(186, 136), (320, 136), (320, 146), (182, 146)], (12, 5, 9))
+    stroke(d, [(186, 136), (320, 136)], hx('8A5A6C'), 0.6)
     for x in (30, 80, 210, 260, 300):
         yt = 130 if x < 180 else 146
-        R(d, x, yt, 2, 180 - yt, (12, 5, 9))
+        box(d, x, yt, 2, 180 - yt, (12, 5, 9))
 
-    # Dante mid-jump, blown off his line; coat streaming
+    # Dante mid-jump, drifting; coat streaming
     figure(d, 152, 112, 26, DANTE_COAT, pose='walk', rim=hx('C79AA8'),
            rim_side=-1)
-    d.line([(144, 100), (138, 98)], fill=shade(DANTE_COAT, 0.8), width=2)
+    poly(d, [(147, 99), (140, 96.5), (141, 99.5), (147, 101)],
+         shade(DANTE_COAT, 0.8))
 
     # Virgil braced, hand to cap
     figure(d, 214, 136, 27, VIRGIL_GRAY, cap=hx('33383F'), rim=hx('C79AA8'),
            rim_side=-1)
-    d.line([(208, 112), (212, 110)], fill=VIRGIL_GRAY)
+    stroke(d, [(209, 113), (213, 111)], VIRGIL_GRAY, 0.9)
 
-    # Paolo & Francesca in the wind-shadow of the great duct
-    d.polygon([(258, 128), (312, 128), (318, 140), (252, 140)], fill=(7, 3, 6))
-    figure(d, 288, 174, 20, (30, 14, 22), pants=(30, 14, 22),
+    # Paolo & Francesca in the wind-shadow
+    poly(d, [(256, 128), (312, 128), (318, 140), (250, 140)], (7, 3, 6))
+    figure(d, 288, 174, 20, (32, 15, 24), pants=(32, 15, 24),
            hair=(20, 9, 15))
-    figure(d, 295, 174, 21, (30, 14, 22), pants=(30, 14, 22),
+    figure(d, 296, 174, 21, (32, 15, 24), pants=(32, 15, 24),
            hair=(20, 9, 15))
-    R(d, 290, 162, 3, 2, hx('D9D3C8'))               # the paperback
-    d.line([(284, 158), (284, 166)], fill=hx('C79AA8'))  # one rim edge shared
+    box(d, 290.5, 162, 3, 2, hx('D9D3C8'))           # the paperback
+    stroke(d, [(283, 158), (283, 167)], hx('C79AA8'), 0.45)
 
-    label(d, 160, 10, 'LUST', sc=2)
+    label(d, 160, 8, 'LUST', sc=2)
     return img
 
 
 # ------------------------------------------------------------ Treachery ----
 def scene_treachery():
     img, d = canvas(hx('42585F'))
-    bands(d, 0, 148, [hx('222F35'), hx('2E4048'), hx('42585F'), hx('5A7680')])
+    vgrad(d, 0, 148, hx('1D2930'), hx('5F7C87'))
 
-    # wings: vast swept silhouettes owning the top corners
-    d.polygon([(126, 40), (0, 0), (0, 66), (60, 58), (122, 62)], fill=(6, 9, 11))
-    d.polygon([(194, 40), (320, 0), (320, 66), (260, 58), (198, 62)],
-              fill=(6, 9, 11))
-    for i in range(4):                               # blade cuts
-        d.line([(6 + i * 28, 4 + i * 5), (122, 52)], fill=hx('222F35'), width=2)
-        d.line([(314 - i * 28, 4 + i * 5), (198, 52)], fill=hx('222F35'), width=2)
-    # shear off the wingtips
+    # wings owning the top corners
+    poly(d, [(126, 40), (0, 0), (0, 66), (60, 58), (122, 62)], (6, 9, 11))
+    poly(d, [(194, 40), (320, 0), (320, 66), (260, 58), (198, 62)], (6, 9, 11))
+    for i in range(4):
+        stroke(d, [(6 + i * 28, 4 + i * 5), (122, 52)], hx('222F35'), 1)
+        stroke(d, [(314 - i * 28, 4 + i * 5), (198, 52)], hx('222F35'), 1)
     rnd = random.Random(13)
-    for _ in range(46):
-        x, y = rnd.randrange(W), rnd.randrange(24, 150)
-        d.line([(x, y), (x + rnd.randrange(8, 22), y)], fill=hx('C7DCE2'))
+    for _ in range(40):                              # wind shear
+        x, y = rnd.randrange(LW), rnd.randrange(24, 150)
+        stroke(d, [(x, y), (x + rnd.randrange(8, 24), y)], hx('C7DCE2'), 0.4)
 
     # LUCIFER — one black mass fused into the seized machine
-    d.polygon([(138, 22), (182, 22), (176, 14), (144, 14)], fill=(4, 6, 8))
-    d.polygon([(130, 30), (190, 30), (208, 150), (112, 150)], fill=(4, 6, 8))
-    d.polygon([(130, 30), (190, 30), (182, 22), (138, 22)], fill=(4, 6, 8))
-    # seized gears, silhouette on silhouette
+    poly(d, [(138, 22), (182, 22), (176, 13), (144, 13)], (4, 6, 8))
+    poly(d, [(130, 30), (190, 30), (208, 150), (112, 150)], (4, 6, 8))
+    poly(d, [(130, 30), (190, 30), (182, 22), (138, 22)], (4, 6, 8))
     for (gx, gy, gr) in [(106, 92, 13), (216, 82, 13), (102, 128, 10),
                          (220, 122, 11)]:
-        d.ellipse([gx - gr, gy - gr, gx + gr, gy + gr], fill=(6, 9, 11))
-        for ang in range(0, 360, 60):
+        ell(d, gx - gr, gy - gr, gx + gr, gy + gr, (6, 9, 11))
+        for ang in range(0, 360, 45):
             a = math.radians(ang)
-            R(d, int(gx + (gr + 2) * math.cos(a)) - 1,
-              int(gy + (gr + 2) * math.sin(a)) - 1, 3, 3, (6, 9, 11))
-        d.ellipse([gx - 3, gy - 3, gx + 3, gy + 3], fill=(4, 6, 8))
-    R(d, 92, 146, 136, 6, (6, 9, 11))                # drive housing
+            tx, ty = gx + (gr + 1.5) * math.cos(a), gy + (gr + 1.5) * math.sin(a)
+            ell(d, tx - 1.8, ty - 1.8, tx + 1.8, ty + 1.8, (6, 9, 11))
+        ell(d, gx - 3, gy - 3, gx + 3, gy + 3, (4, 6, 8))
+    box(d, 92, 146, 136, 6, (6, 9, 11))
 
-    # the three faces exist only as burning eyes and a breathing jaw
-    for (ex, ey, ec) in [(152, 38, hx('B33A26')),    # crimson, forward
-                         (138, 44, hx('8A8F96')),    # ashen, left
-                         (176, 44, hx('C9B26B'))]:   # pale yellow, right
-        R(d, ex, ey, 2, 2, ec)
-        R(d, ex + 6, ey, 2, 2, ec)
-        glow(img, ex + 4, ey + 1, 7, ec, alpha=70)
+    # three faces: only burning eyes and a breathing jaw
+    for (ex, ey, ec) in [(152, 38, hx('B33A26')),
+                         (138, 44, hx('8A8F96')),
+                         (176, 44, hx('C9B26B'))]:
+        ell(d, ex, ey, ex + 2, ey + 2, ec)
+        ell(d, ex + 6, ey, ex + 8, ey + 2, ec)
+        glow(img, ex + 4, ey + 1, 8, ec, alpha=65)
         d = ImageDraw.Draw(img)
-        d.line([(ex - 1, ey + 10), (ex + 9, ey + 10)], fill=shade(ec, 0.55))
-    # frost climbing the mass; ice crown
-    speckle(d, 116, 96, 92, 54, hx('9FBEC7'), 0.05, seed=21)
-    speckle(d, 112, 134, 104, 16, hx('C7DCE2'), 0.11, seed=22)
-    speckle(d, 136, 14, 50, 10, hx('C7DCE2'), 0.16, seed=23)
+        stroke(d, [(ex - 1, ey + 10), (ex + 9, ey + 10)], shade(ec, 0.5), 0.7)
 
-    # the frozen lake, banded
-    bands(d, 148, 180, [hx('8FAAB4'), hx('9FBEC7'), hx('AECAD3')])
+    # frost climbing the mass; the ice crown
+    dust(img, 116, 96, 92, 54, hx('C7DCE2'), 240, 0.4, 130, seed=21)
+    dust(img, 112, 132, 104, 18, hx('C7DCE2'), 220, 0.5, 150, seed=22)
+    dust(img, 136, 13, 50, 10, hx('C7DCE2'), 90, 0.5, 170, seed=23)
+    d = ImageDraw.Draw(img)
+
+    # the frozen lake
+    vgrad(d, 148, 180, hx('8FAAB4'), hx('B4CFD8'))
     for _ in range(14):                              # cracks
-        x0, y0 = rnd.randrange(W), 152 + rnd.randrange(24)
+        x0, y0 = rnd.randrange(LW), 152 + rnd.randrange(24)
+        pts = [(x0, y0)]
         for _ in range(4):
-            x1 = x0 + rnd.randrange(-16, 18)
-            y1 = y0 + rnd.randrange(-2, 4)
-            d.line([(x0, y0), (x1, y1)], fill=hx('6E8B96'))
-            x0, y0 = x1, y1
+            x0 += rnd.randrange(-16, 18)
+            y0 += rnd.randrange(-2, 4)
+            pts.append((x0, y0))
+        stroke(d, pts, hx('6E8B96'), 0.4)
     # the damned sealed under the surface; one pair locked close
     for (sx, sy, sw) in [(34, 162, 15), (74, 170, 12), (248, 166, 14)]:
-        R(d, sx, sy, sw, 3, hx('54707B'))
-        R(d, sx + sw, sy - 1, 3, 3, hx('54707B'))
-    R(d, 206, 168, 11, 3, hx('3C525C'))
-    R(d, 216, 166, 11, 3, hx('3C525C'))
+        rbox(d, sx, sy, sw, 2.6, 1, hx('54707B'))
+        ell(d, sx + sw, sy - 1, sx + sw + 3.4, sy + 2.4, hx('54707B'))
+    rbox(d, 206, 168, 11, 2.6, 1, hx('3C525C'))
+    rbox(d, 216, 166, 11, 2.6, 1, hx('3C525C'))
 
-    # Dante climbing down the flank; Virgil waiting on the ice below
+    # Dante climbing the flank; Virgil below on the ice
     figure(d, 206, 98, 15, DANTE_COAT, rim=hx('C7DCE2'), rim_side=1)
-    d.line([(202, 88), (199, 90)], fill=SKIN)
+    stroke(d, [(203, 88.5), (200, 90.5)], SKIN, 0.5)
     figure(d, 214, 148, 15, VIRGIL_GRAY, cap=hx('33383F'),
            rim=hx('C7DCE2'), rim_side=1)
 
-    # foreground ice ridges framing the shot
-    d.polygon([(0, 180), (0, 150), (28, 158), (58, 172), (74, 180)],
-              fill=hx('16232A'))
-    d.polygon([(320, 180), (320, 154), (296, 160), (270, 174), (258, 180)],
-              fill=hx('16232A'))
+    # foreground ice ridges
+    poly(d, [(0, 180), (0, 150), (28, 158), (58, 172), (74, 180)],
+         hx('141F26'))
+    poly(d, [(320, 180), (320, 154), (296, 160), (270, 174), (258, 180)],
+         hx('141F26'))
 
-    label(d, 160, 6, 'TREACHERY', sc=1)
+    label(d, 160, 5, 'TREACHERY', sc=1.2)
     return img
 
 
