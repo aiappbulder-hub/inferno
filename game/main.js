@@ -150,10 +150,10 @@ function lamp(c, x, gy, flicker) {
   box(c, x - 5, gy - 55, 10, 4, '#0A0F0A');
   if (on > 0.05) {
     box(c, x - 3, gy - 53.4, 6, 2.2, '#E8A33D');
-    glowCircle(c, x, gy - 51, 34, AMBER, 0.22 * on);
+    glowCircle(c, x, gy - 51, 40, AMBER, 0.32 * on);
     // light pool
-    c.globalAlpha = 0.10 * on;
-    ell(c, x, gy + 1, 26, 4, '#E8A33D');
+    c.globalAlpha = 0.16 * on;
+    ell(c, x, gy + 1, 30, 4.5, '#E8A33D');
     c.globalAlpha = 1;
   }
 }
@@ -584,9 +584,14 @@ function frame(ts) {
     sc.draw(ctx);
     if (mode !== 'drop' || modeT < 0.5) drawPlayer(ctx);
     ctx.restore();
+    // shadow lift — keeps the mood, uncrushes the blacks
+    ctx.globalCompositeOperation = 'screen';
+    ctx.fillStyle = 'rgb(30,34,31)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'source-over';
     // vignette
     const vg = ctx.createRadialGradient(W/2, H/2, H*0.45, W/2, H/2, H*0.95);
-    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.55)');
+    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.32)');
     ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
     if (mode === 'dead') {
       ctx.fillStyle = `rgba(0,0,0,${Math.min(1, modeT * 3)})`;
