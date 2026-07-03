@@ -24,36 +24,69 @@ let touchUI = false, touchRestart = false;
 let uiS = 1, uiOx = 0, uiOy = 0;
 const touchHeld = new Set();
 const btns = [
-  { k: 'ArrowLeft',  x: 26,  y: 156, r: 14, label: '◀' },
-  { k: 'ArrowRight', x: 62,  y: 156, r: 14, label: '▶' },
-  { k: 'KeyX',       x: 248, y: 158, r: 13, label: '✦' },
-  { k: 'Space',      x: 280, y: 143, r: 13, label: '▲' },
-  { k: 'ArrowDown',  x: 298, y: 165, r: 12, label: '▼' },
+  { k: 'ArrowLeft',  x: 24,  y: 152, r: 16, label: '◀' },
+  { k: 'ArrowRight', x: 64,  y: 152, r: 16, label: '▶' },
+  { k: 'KeyX',       x: 244, y: 156, r: 14, label: '✦' },
+  { k: 'Space',      x: 278, y: 140, r: 14, label: '▲' },
+  { k: 'ArrowDown',  x: 298, y: 164, r: 13, label: '▼' },
 ];
 const ptrs = new Map();
 function refreshTouches() {
   touchHeld.clear();
   for (const p of ptrs.values())
     for (const b of btns) {
-      const dx = p.x - b.x, dy = p.y - b.y, r = b.r + 5;
-      if (dx * dx + dy * dy < r * r) touchHeld.add(b.k);
+      // generous hit radius, more so once already held (sticky under drift)
+      const dx = p.x - b.x, dy = p.y - b.y;
+      const r = b.r + (p.held === b.k ? 16 : 8);
+      if (dx * dx + dy * dy < r * r) { touchHeld.add(b.k); p.held = b.k; }
     }
 }
-cv.addEventListener('pointerdown', e => {
-  e.preventDefault();
+function ptrPoint(cx, cy, held) {
+  return { x: (cx - uiOx) / uiS, y: (cy - uiOy) / uiS, held };
+}
+function ptrDown(id, cx, cy, isTouch) {
   audioInit();
-  if (e.pointerType !== 'mouse') touchUI = true;
+  if (isTouch) touchUI = true;
   anyKeyPulse = true; touchRestart = true;
-  ptrs.set(e.pointerId, { x: (e.clientX - uiOx) / uiS, y: (e.clientY - uiOy) / uiS });
+  ptrs.set(id, ptrPoint(cx, cy));
   refreshTouches();
-});
-cv.addEventListener('pointermove', e => {
-  if (!ptrs.has(e.pointerId)) return;
-  ptrs.set(e.pointerId, { x: (e.clientX - uiOx) / uiS, y: (e.clientY - uiOy) / uiS });
-  refreshTouches();
-});
-for (const ev of ['pointerup', 'pointercancel', 'pointerout'])
-  cv.addEventListener(ev, e => { ptrs.delete(e.pointerId); refreshTouches(); });
+}
+if (window.PointerEvent) {
+  cv.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    ptrDown(e.pointerId, e.clientX, e.clientY, e.pointerType !== 'mouse');
+  });
+  cv.addEventListener('pointermove', e => {
+    const p = ptrs.get(e.pointerId);
+    if (!p) return;
+    ptrs.set(e.pointerId, ptrPoint(e.clientX, e.clientY, p.held));
+    refreshTouches();
+  });
+  for (const ev of ['pointerup', 'pointercancel'])
+    cv.addEventListener(ev, e => { ptrs.delete(e.pointerId); refreshTouches(); });
+} else {
+  // ancient mobile browsers: raw touch events
+  cv.addEventListener('touchstart', e => {
+    for (const t of e.changedTouches)
+      ptrDown('t' + t.identifier, t.clientX, t.clientY, true);
+  });
+  cv.addEventListener('touchmove', e => {
+    for (const t of e.changedTouches) {
+      const p = ptrs.get('t' + t.identifier);
+      if (p) ptrs.set('t' + t.identifier,
+                      ptrPoint(t.clientX, t.clientY, p.held));
+    }
+    refreshTouches();
+  });
+  for (const ev of ['touchend', 'touchcancel'])
+    cv.addEventListener(ev, e => {
+      for (const t of e.changedTouches) ptrs.delete('t' + t.identifier);
+      refreshTouches();
+    });
+}
+// stop iOS magnifier/selection/scroll without killing pointer events
+cv.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
+cv.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
 addEventListener('contextmenu', e => e.preventDefault());
 
 const left  = () => keys.ArrowLeft || keys.KeyA || touchHeld.has('ArrowLeft');
@@ -1206,11 +1239,15 @@ function frame(ts) {
     else ambience('under', 150, 0.045);                        // deep rumble
   }
 
-  // render
+  // render — size the canvas to the *visible* viewport every frame, so
+  // mobile URL-bar collapse and iOS 100vh quirks never skew hit-testing
   const s = Math.min(innerWidth / W, innerHeight / H);
-  if (cv.width !== innerWidth * devicePixelRatio) {
-    cv.width = innerWidth * devicePixelRatio;
-    cv.height = innerHeight * devicePixelRatio;
+  const bw = Math.round(innerWidth * devicePixelRatio);
+  const bh = Math.round(innerHeight * devicePixelRatio);
+  if (cv.width !== bw || cv.height !== bh) {
+    cv.width = bw; cv.height = bh;
+    cv.style.width = innerWidth + 'px';
+    cv.style.height = innerHeight + 'px';
   }
   ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, innerWidth, innerHeight);
