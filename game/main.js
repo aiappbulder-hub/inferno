@@ -13,6 +13,9 @@ let anyKeyPulse = false;
 addEventListener('keydown', e => {
   if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space'].includes(e.code))
     e.preventDefault();
+  if (e.code === 'KeyS' && mode === 'title') {
+    toggleSubs(); keys[e.code] = true; audioInit(); return;
+  }
   if (!keys[e.code]) anyKeyPulse = true;
   keys[e.code] = true;
   audioInit();
@@ -44,11 +47,18 @@ function refreshTouches() {
 function ptrPoint(cx, cy, held) {
   return { x: (cx - uiOx) / uiS, y: (cy - uiOy) / uiS, held };
 }
+let suppressStart = false;
 function ptrDown(id, cx, cy, isTouch) {
   audioInit();
   if (isTouch) touchUI = true;
+  const p = ptrPoint(cx, cy);
+  // the subtitles toggle on the title screen
+  if (mode === 'title' && p.x > 96 && p.x < 224 && p.y > 158 && p.y < 174) {
+    toggleSubs(); suppressStart = true;
+    return;
+  }
   anyKeyPulse = true; touchRestart = true;
-  ptrs.set(id, ptrPoint(cx, cy));
+  ptrs.set(id, p);
   refreshTouches();
 }
 if (window.PointerEvent) {
@@ -124,6 +134,12 @@ function ell(c, x, y, rx, ry, fill) {
   c.beginPath(); c.ellipse(x, y, rx, ry, 0, 0, 7); c.fillStyle = fill; c.fill();
 }
 function box(c, x, y, w, h, fill) { c.fillStyle = fill; c.fillRect(x, y, w, h); }
+function rbox(c, x, y, w, h, r, fill) {
+  c.beginPath();
+  if (c.roundRect) c.roundRect(x, y, w, h, r);
+  else c.rect(x, y, w, h);
+  c.fillStyle = fill; c.fill();
+}
 function vgrad(c, x, y, w, h, c0, c1) {
   const g = c.createLinearGradient(0, y, 0, y + h);
   g.addColorStop(0, c0); g.addColorStop(1, c1);
@@ -271,12 +287,15 @@ function resetPlayer(x) {
 function updatePlayer(dt, sc) {
   if (player.stun > 0) { player.stun -= dt; player.vx = 0; }
   else {
-    const spd = run() ? RUN : WALK;
+    const spd = (run() ? RUN : WALK) * (sc.speedMul || 1);
     let dir = (right() ? 1 : 0) - (left() ? 1 : 0);
     player.crouch = down() && player.on;
     let s = spd;
     if (player.crouch) s = (Math.abs(player.vx) > WALK + 5 && sc.slide) ? RUN : WALK * 0.6;
-    player.vx = dir * s;
+    if (sc.ice) {                    // momentum: the ninth circle owns your feet
+      const tgt = dir * s;
+      player.vx += (tgt - player.vx) * Math.min(1, dt * 2.0);
+    } else player.vx = dir * s;
     if (dir) player.facing = dir;
     if (jumpK() && player.on && !player.crouch) {
       player.vy = JUMPV; player.on = false; sfx.jump();
@@ -344,6 +363,38 @@ function tone(f0, f1, dur, type = 'square', vol = 0.12, delay = 0) {
   o.connect(g); g.connect(master);
   o.start(t0); o.stop(t0 + dur + 0.03);
 }
+// music: a slow synthesized pad, one root note per area, descending as
+// you descend; sparse bell notes above it
+let musA = null, musB = null, musGain = null, musRoot = 0, nextBell = 0;
+function musicEnsure() {
+  if (!AC || musGain) return;
+  musGain = AC.createGain(); musGain.gain.value = 0.045;
+  musGain.connect(master);
+  const f = AC.createBiquadFilter();
+  f.type = 'lowpass'; f.frequency.value = 850; f.connect(musGain);
+  musA = AC.createOscillator(); musA.type = 'sine';
+  musB = AC.createOscillator(); musB.type = 'triangle';
+  const gb = AC.createGain(); gb.gain.value = 0.45;
+  musB.connect(gb); gb.connect(f); musA.connect(f);
+  musA.frequency.value = 110; musB.frequency.value = 165;
+  musA.start(); musB.start();
+}
+function music(root) {
+  if (!AC) return;
+  musicEnsure();
+  if (root === musRoot) return;
+  musRoot = root;
+  musA.frequency.setTargetAtTime(root, AC.currentTime, 1.4);
+  musB.frequency.setTargetAtTime(root * 1.4983, AC.currentTime, 1.8);
+}
+const BELLS = [1, 1.189, 1.498, 1.782, 2];
+function bellTick() {
+  if (!AC || !musRoot || T < nextBell) return;
+  nextBell = T + 5 + Math.random() * 8;
+  const n = musRoot * 2 * BELLS[(Math.random() * BELLS.length) | 0];
+  tone(n, n * 0.995, 1.6, 'sine', 0.026);
+}
+
 const sfx = {
   jump:   () => tone(200, 320, 0.09, 'sine', 0.045),
   death:  () => tone(150, 38, 0.5, 'triangle', 0.22),
@@ -364,10 +415,17 @@ const sfx = {
 // who don't know the poem. Subtitles always; each line speaks once per run.
 const spoken = new Set();
 let subText = '', subT = 0;
+let subsOn = true;
+try { subsOn = localStorage.getItem('inferno_subs') !== '0'; } catch (e) {}
+function toggleSubs() {
+  subsOn = !subsOn;
+  if (!subsOn) { subText = ''; subT = 0; }
+  try { localStorage.setItem('inferno_subs', subsOn ? '1' : '0'); } catch (e) {}
+}
 function say(id, text, showSub = true) {
   if (spoken.has(id)) return;
   spoken.add(id);
-  if (showSub) { subText = text; subT = Math.max(2.8, text.length * 0.075); }
+  if (showSub && subsOn) { subText = text; subT = Math.max(2.8, text.length * 0.075); }
   try {
     if (window.speechSynthesis) {
       speechSynthesis.cancel();
@@ -579,6 +637,7 @@ function drawVirgil(c, x, y, o = {}) {
 // ----------------------------------------------------------------- state --
 let mode = 'title';          // title | quote | play | dead | drop | end
 let modeT = 0, sceneIdx = 0, camX = 0, T = 0;
+let lastSceneIdx = -1, titleT = 9;
 let deathCause = '';
 
 function kill(cause) {
@@ -1101,7 +1160,7 @@ function makeAcheron() {
         }
       } else if (this.phase === 'quake') {
         this.quake = Math.min(1, this.pt / 0.4);
-        if (this.pt > 2.1) { mode = 'end'; modeT = 0; }
+        if (this.pt > 2.1) nextScene();              // into Limbo itself
       }
       for (const hd of this.hands) {
         if (hd.state === 'gone') continue;
@@ -1198,8 +1257,568 @@ function makeAcheron() {
   };
 }
 
+// ============================ THE NINE CIRCLES ============================
+
+// Circle 1 — LIMBO: the terminus; crowds surge when a ghost train arrives;
+// Minos judges at the exit, his tail the barrier
+function makeLimbo() {
+  const w = 640;
+  const clusters = [{ x: 150, w: 44 }, { x: 300, w: 50 }, { x: 452, w: 44 }];
+  return {
+    w, name: 'limbo', entry: 12, title: 'LIMBO',
+    reset() { resetPlayer(this.entry); clearCombat(); this.t = 0; },
+    update(dt) {
+      say('c1', "Limbo — the first circle. These souls did no wrong; they only lived without the light. When a train pretends to arrive, the crowd surges. Slip through behind them.");
+      this.t += dt;
+      this.surge = (this.t % 7) > 4.6;
+      if (!this.surge) for (const cl of clusters) {
+        if (player.x > cl.x - 8 && player.x < cl.x + cl.w + 8)
+          player.x = player.x < cl.x + cl.w / 2 ? cl.x - 8 : cl.x + cl.w + 8;
+      }
+      // Minos: his tail sweeps the exit
+      this.tailDown = (this.t % 3.4) < 2.05;
+      if (this.tailDown && player.x > 584 && player.x < 606) kill('minos');
+      if (player.x >= w - 8) nextScene();
+    },
+    draw(c) {
+      vgrad(c, 0, 0, w, 60, '#40100A', '#6B2013');
+      vgrad(c, 0, 60, w, 44, '#27717C', '#1D5660');       // the ghost train
+      box(c, 0, 60, w, 4, '#194C54');
+      for (let x = 8; x < w; x += 56) rbox(c, x, 68, 24, 16, 2, '#E8D9A0');
+      box(c, 0, 104, w, 6, '#0F2A30');
+      vgrad(c, 0, 110, w, 40, '#9A3220', '#792415');
+      box(c, 0, 110, w, 2, '#D9C8A0');
+      box(c, 0, GROUND, w, 30, '#5E1A0F');
+      const coats = ['#5C4632', '#4A3B58', '#7A2E2E', '#2E5C4A', '#8C8C94'];
+      clusters.forEach((cl, ci) => {
+        for (let i = 0; i < Math.floor(cl.w / 11); i++)
+          figure(c, cl.x + 6 + i * 11, GROUND - (this.surge ? 3 : 0),
+                 20 + ((i + ci) % 3) * 2, coats[(i + ci) % coats.length],
+                 { face: false });
+      });
+      // MINOS at the exit — the inspector whose tail is the barrier
+      const mx = 614;
+      poly(c, [[mx - 9, GROUND], [mx - 5, GROUND - 40], [mx + 6, GROUND - 44],
+               [mx + 11, GROUND], [mx + 14, GROUND + 1], [mx - 11, GROUND + 1]],
+           '#2B0B06');
+      ell(c, mx + 1, GROUND - 41, 5, 5.6, '#2B0B06');
+      c.fillStyle = '#E8A33D';
+      c.fillRect(mx - 1, GROUND - 42, 1.4, 1.4);
+      c.fillRect(mx + 2.4, GROUND - 42, 1.4, 1.4);
+      // the tail: down = a striped barrier arm across the way
+      if (this.tailDown) {
+        box(c, 592, 112, 4, GROUND - 112, '#2B0B06');
+        for (let y = 116; y < GROUND; y += 10) box(c, 592, y, 4, 4, '#B33A26');
+      } else {
+        box(c, 592, 108, 26, 4, '#2B0B06');
+        for (let x = 594; x < 616; x += 9) box(c, x, 108, 4, 4, '#B33A26');
+      }
+    },
+  };
+}
+
+// Circle 2 — LUST: the gale owns your feet and your jumps
+function makeLustLvl() {
+  const w = 560;
+  return {
+    w, name: 'lust', entry: 10, title: 'LUST',
+    inGap: x => (x > 150 && x < 196) || (x > 330 && x < 386),
+    reset() { resetPlayer(this.entry); clearCombat(); this.t = 0; },
+    update(dt) {
+      say('c2', "The second circle: Lust. A storm that never rests. The wind owns your steps here — and your jumps. Crouch to hold your ground.");
+      this.t += dt;
+      this.wind = (Math.sin(this.t * 0.9) + Math.sin(this.t * 0.37 + 2)) * 30;
+      player.x += this.wind * dt *
+                  (player.on && player.crouch ? 0.2 : 1);
+      if (player.y > GROUND + 22) kill('fall');
+      if (player.x >= w - 8) nextScene();
+    },
+    draw(c) {
+      vgrad(c, 0, 0, w, 180, '#241019', '#6B3A50');
+      ell(c, 20, 80, 70, 60, '#140A10');
+      ell(c, 540, 100, 70, 60, '#140A10');
+      for (let i = 0; i < 8; i++) {                       // the gale, drawn
+        const y0 = 20 + i * 16, amp = 5 + (i % 3) * 3;
+        c.strokeStyle = 'rgba(215,167,180,0.5)'; c.lineWidth = 0.6;
+        c.beginPath();
+        for (let x = 0; x < w; x += 6) {
+          const y = y0 + amp * Math.sin(x / 38 + this.t * (1 + i * 0.07));
+          x ? c.lineTo(x, y) : c.moveTo(x, y);
+        }
+        c.stroke();
+      }
+      for (let i = 0; i < 5; i++) {                       // souls, blown
+        const sx = ((this.t * 46 + i * 130) % (w + 60)) - 30;
+        const sy = 34 + 16 * Math.sin(sx / 60 + i);
+        poly(c, [[sx - 8, sy + 2], [sx + 6, sy - 1], [sx + 10, sy + 1],
+                 [sx + 5, sy + 4], [sx - 11, sy + 5]], '#1E1018');
+      }
+      // ground with two wind-cut gaps
+      for (const [x0, x1] of [[0, 150], [196, 330], [386, w]]) {
+        box(c, x0, GROUND, x1 - x0, 30, '#2B1722');
+        box(c, x0, GROUND, x1 - x0, 2, '#8A5A6C');
+      }
+      // the couple, sheltered leeward of the duct — always together
+      figure(c, 526, GROUND, 18, '#3A2531', { face: false });
+      figure(c, 533, GROUND, 19, '#3A2531', { face: false });
+    },
+  };
+}
+
+// Circle 3 — GLUTTONY: mud tax on every verb; pass each of Cerberus's
+// mouths only while it sleeps
+function makeGluttony() {
+  const w = 560;
+  const zones = [{ x0: 148, x1: 240 }, { x0: 252, x1: 344 }, { x0: 356, x1: 448 }];
+  return {
+    w, name: 'gluttony', entry: 10, title: 'GLUTTONY', speedMul: 0.55,
+    reset() { resetPlayer(this.entry); clearCombat(); this.t = 0; },
+    headAwake(i) {
+      const ph = (this.t % 10.5) / 3.5;               // each sleeps in turn
+      return Math.floor(ph) !== i;
+    },
+    headStirring(i) {
+      const ph = (this.t % 10.5) / 3.5;
+      return Math.floor(ph) === i && (ph % 1) > 0.82;  // about to wake
+    },
+    update(dt) {
+      say('c3', "The third: Gluttony. Black rain, and mud that swallows every step. Cerberus guards it — three heads, and only one sleeps at a time. Pass each mouth while its eyes are dark.");
+      this.t += dt;
+      zones.forEach((z, i) => {
+        if (this.headAwake(i) && player.x > z.x0 && player.x < z.x1)
+          kill('cerberus');
+      });
+      if (player.x >= w - 8) nextScene();
+    },
+    draw(c) {
+      vgrad(c, 0, 0, w, 150, '#232C18', '#3A452A');
+      // black rain
+      for (let i = 0; i < 60; i++) {
+        const rx = (i * 47 + T * 130 * (1 + i % 3 * 0.2)) % w;
+        const ry = (i * 83 + T * 260) % 150;
+        c.strokeStyle = 'rgba(16,16,14,0.7)';
+        c.beginPath(); c.moveTo(rx, ry); c.lineTo(rx - 1.5, ry + 7); c.stroke();
+      }
+      box(c, 0, GROUND, w, 30, '#2A2114');              // the mire
+      for (let x = 0; x < w; x += 26)
+        ell(c, x + 13, GROUND + 2, 12, 2.5, '#1C160C');
+      // three tunnel mouths, a head in each
+      zones.forEach((z, i) => {
+        const cxm = (z.x0 + z.x1) / 2;
+        c.beginPath(); c.ellipse(cxm, 118, 52, 46, 0, Math.PI, 0);
+        c.fillStyle = '#151A0E'; c.fill();
+        // the head: a muzzle over the pass
+        const awake = this.headAwake(i), stir = this.headStirring(i);
+        poly(c, [[cxm - 16, 96], [cxm + 16, 96], [cxm + 10, 122],
+                 [cxm - 10, 122]], '#0B0F07');
+        ell(c, cxm, 94, 15, 12, '#0B0F07');
+        poly(c, [[cxm - 12, 84], [cxm - 16, 72], [cxm - 5, 82]], '#0B0F07');
+        poly(c, [[cxm + 12, 84], [cxm + 16, 72], [cxm + 5, 82]], '#0B0F07');
+        if (awake || stir) {
+          const gl = awake ? 0.9 : 0.35 + 0.4 * Math.sin(T * 16);
+          c.globalAlpha = gl;
+          c.fillStyle = '#E8A33D';
+          c.fillRect(cxm - 5, 92, 2.4, 2); c.fillRect(cxm + 2.6, 92, 2.4, 2);
+          c.globalAlpha = 1;
+        }
+      });
+    },
+  };
+}
+
+// Circle 4 — GREED: the hoarders' carts roll forever; jump them
+function makeGreed() {
+  const w = 560;
+  const carts = [];
+  return {
+    w, name: 'greed', entry: 10, title: 'GREED', carts,
+    reset() {
+      resetPlayer(this.entry); clearCombat();
+      carts.length = 0; this.t = 0; this.n1 = 0; this.n2 = 0;
+    },
+    update(dt) {
+      say('c4', "The fourth: Greed. They pushed their wealth in circles all their lives, and they have not stopped. The carts stop for no one — go over them.");
+      this.t += dt;
+      if (this.t > this.n1) { this.n1 = this.t + 3.1; carts.push({ x: w + 20, v: -62 }); }
+      if (this.t > this.n2 + 1.4) { this.n2 = this.t + 3.8; carts.push({ x: -20, v: 58 }); }
+      for (let i = carts.length; i--;) {
+        const k = carts[i]; k.x += k.v * dt;
+        if (k.x < -40 || k.x > w + 40) { carts.splice(i, 1); continue; }
+        if (Math.abs(k.x - player.x) < 15 && player.y > GROUND - 12)
+          kill('cart');
+      }
+      if (player.x >= w - 8) nextScene();
+    },
+    draw(c) {
+      vgrad(c, 0, 0, w, 150, '#3A300E', '#6E5713');
+      for (let x = 20; x < w; x += 90) {                  // hoard mounds
+        ell(c, x + 30, 128, 42, 26, '#4A3B0F');
+        speckleGold(c, x + 4, 106, 60, 24, 14, x);
+      }
+      box(c, 0, GROUND, w, 30, '#3A300E');
+      for (const k of carts) {
+        box(c, k.x - 14, GROUND - 12, 28, 10, '#2A230C');
+        box(c, k.x - 12, GROUND - 16, 24, 5, '#C9A227');
+        ell(c, k.x - 8, GROUND - 1, 3.4, 3.4, '#1A1508');
+        ell(c, k.x + 8, GROUND - 1, 3.4, 3.4, '#1A1508');
+        // its pusher, faceless as the poem keeps them
+        figure(c, k.x - Math.sign(k.v) * 19, GROUND, 19, '#4A3B0F',
+               { face: false, skin: '#4A3B0F', hair: '#4A3B0F',
+                 legPhase: T * 9, moving: true, facing: Math.sign(k.v) });
+      }
+    },
+  };
+}
+function speckleGold(c, x, y, w2, h2, n, seed) {
+  let s = seed;
+  for (let i = 0; i < n; i++) {
+    s = (s * 9301 + 49297) % 233280;
+    const rx = x + (s / 233280) * w2;
+    s = (s * 9301 + 49297) % 233280;
+    box(c, rx, y + (s / 233280) * h2, 1.6, 1.2, '#E8C84A');
+  }
+}
+
+// Circle 5 — WRATH: the Styx crossing, and the gate of Dis that Virgil
+// cannot open — heaven's messenger walks the third rail
+function makeWrath() {
+  const w = 560;
+  const car = { x: 100, moving: false };
+  return {
+    w, name: 'wrath', entry: 10, title: 'WRATH', hands: [], car, shades: [],
+    reset() {
+      resetPlayer(this.entry); clearCombat();
+      this.hands.length = 0; this.shades.length = 0;
+      car.x = 100; car.moving = false;
+      this.phase = 'board'; this.pt = 0; this.hn = 0; this.msgX = -30;
+    },
+    update(dt) {
+      say('c5', "The fifth: Wrath, and the drowned river Styx. The wrathful do not care for boats. Past the water stands the iron city of Dis — and for once, Virgil could not open the way.");
+      this.pt += dt;
+      const a = car.x - 28, b = car.x + 28;
+      if (this.phase === 'board') {
+        if (player.on && player.x > a + 4) { this.phase = 'cross'; car.moving = true; }
+      } else if (this.phase === 'cross') {
+        const vx = 20 * dt;
+        car.x += vx; player.x += vx;
+        if (player.x < a - 3 || player.x > b + 3) kill('styx');
+        const prog = (car.x - 100) / (360 - 100);
+        if (prog > this.hn * 0.3 + 0.15 && this.hn < 3) {
+          this.hn++;
+          this.hands.push({ x: car.x + (this.hn % 2 ? -20 : 22), state: 'tele', t: 0 });
+        }
+        if (car.x >= 360) { car.moving = false; this.phase = 'gate'; this.pt = 0;
+          this.shades.push({ x: 470, state: 'lurk' }, { x: 430, state: 'lurk' });
+          say('dis', "The gate of Dis stayed shut against us. We could only hold our ground — until heaven sent someone who walks where no one walks.");
+        }
+      } else if (this.phase === 'gate') {
+        updateShades(this, dt);
+        if (this.pt > 7) {
+          this.msgX += 46 * dt;
+          if (this.msgX > 496 && !this.opened) {
+            this.opened = true; sfx.clunk();
+            this.shades.forEach(s => { if (!s.dead) s.dead = 0.001; });
+          }
+        }
+        if (this.opened && player.x >= w - 8) nextScene();
+        if (!this.opened) player.x = Math.min(player.x, 492);
+      }
+      for (const hd of this.hands) {
+        if (hd.state === 'gone') continue;
+        hd.t += dt;
+        if (car.moving) hd.x += 20 * dt;
+        if (hd.state === 'tele' && hd.t > 0.6) { hd.state = 'up'; hd.t = 0; }
+        else if (hd.state === 'up') {
+          if (Math.abs(player.x - hd.x) < 7) kill('wrathful');
+          if (hd.t > 1.9) hd.state = 'gone';
+        }
+      }
+    },
+    draw(c) {
+      vgrad(c, 0, 0, w, 118, '#171208', '#3A2E1E');
+      // Dis: iron wall, right
+      vgrad(c, 500, 30, 60, 120, '#2A1D14', '#171008');
+      for (let y = 40; y < 148; y += 16) box(c, 500, y, 60, 2, '#0E0906');
+      box(c, 496, 96, 10, 54, this.opened ? '#3A2E1E' : '#0B0704');
+      if (this.opened) glowCircle(c, 505, 122, 20, AMBER, 0.2);
+      // water
+      vgrad(c, 0, GROUND + 4, w, 26, '#140F06', '#0A0703');
+      for (let i = 0; i < 20; i++)
+        box(c, (i * 61 + T * 12 % 61) % 420, GROUND + 8 + (i * 13) % 16,
+            10, 0.8, '#33270F');
+      box(c, 0, GROUND, 96, 8, '#241A0E');               // near pier
+      box(c, 420, GROUND, 140, 8, '#241A0E');            // far shore
+      box(c, car.x - 28, GROUND - 1, 56, 6, '#100C06');  // the ferry
+      box(c, car.x - 28, GROUND + 5, 56, 3, '#080604');
+      for (const hd of this.hands) {
+        if (hd.state === 'gone') continue;
+        if (hd.state === 'tele') {
+          c.strokeStyle = '#4A3B1E'; c.lineWidth = 0.8;
+          c.beginPath();
+          c.ellipse(hd.x, GROUND + 6, 4 + 6 * (hd.t / 0.6),
+                    1.3 + 1.4 * (hd.t / 0.6), 0, 0, 7);
+          c.stroke();
+        } else {
+          const up = Math.min(1, hd.t / 0.3);
+          poly(c, [[hd.x - 2, GROUND + 6], [hd.x - 1, GROUND + 6 - 13 * up],
+                   [hd.x + 1.6, GROUND + 6 - 14 * up], [hd.x + 2.4, GROUND + 6]],
+               '#1A1208');
+        }
+      }
+      this.shades.forEach((sh, i) => drawShade(c, sh, i));
+      // heaven's messenger, when it is time
+      if (this.msgX > -20) {
+        glowCircle(c, this.msgX, GROUND - 12, 16, 'rgba(216,232,236,A)', 0.5);
+        figure(c, this.msgX, GROUND, 24, '#D8E8EC',
+               { skin: '#EFE3C0', hair: '#D8E8EC', legPhase: T * 8,
+                 moving: true, face: false });
+      }
+    },
+  };
+}
+
+// Circle 6 — HERESY: the burning tombs light the dark; fire keeps a rhythm
+function makeHeresy() {
+  const w = 560;
+  const vents = [150, 205, 260, 340, 395, 450];
+  return {
+    w, name: 'heresy', entry: 10, title: 'HERESY',
+    ventOn(i) { return ((T * 0.8 + i * 0.47) % 2.4) < 0.7; },
+    ventWarn(i) { return ((T * 0.8 + i * 0.47) % 2.4) > 2.0; },
+    reset() { resetPlayer(this.entry); clearCombat(); },
+    update(dt) {
+      say('c6', "The sixth: Heresy. Tombs of fire light the only path there is. The flames keep their own rhythm — learn it, and walk between.");
+      vents.forEach((vx, i) => {
+        if (this.ventOn(i) && Math.abs(player.x - vx) < 9 &&
+            player.y > GROUND - 30) kill('fire');
+      });
+      if (player.x >= w - 8) nextScene();
+    },
+    draw(c) {
+      vgrad(c, 0, 0, w, 150, '#170805', '#3F1B14');
+      box(c, 0, GROUND, w, 30, '#240D08');
+      // tomb-cabinets, glowing from within
+      for (let x = 40; x < w; x += 105) {
+        box(c, x, 96, 34, 54, '#301410');
+        box(c, x + 4, 102, 26, 10, '#8C3B2E');
+        glowCircle(c, x + 17, 107, 18, 'rgba(242,180,65,A)', 0.25);
+        box(c, x - 2, 92, 38, 5, '#1C0A06');            // lid, ajar
+      }
+      vents.forEach((vx, i) => {
+        box(c, vx - 5, GROUND - 2, 10, 3, '#1C0A06');
+        if (this.ventOn(i)) {
+          const fh = 26 + Math.sin(T * 21 + i) * 4;
+          poly(c, [[vx - 4.5, GROUND - 2], [vx, GROUND - 2 - fh],
+                   [vx + 4.5, GROUND - 2]], '#E86A2B');
+          poly(c, [[vx - 2.4, GROUND - 2], [vx, GROUND - 2 - fh * 0.6],
+                   [vx + 2.4, GROUND - 2]], '#F2B441');
+          glowCircle(c, vx, GROUND - 14, 16, 'rgba(232,106,43,A)', 0.4);
+        } else if (this.ventWarn(i)) {
+          glowCircle(c, vx, GROUND - 4, 8,
+                     'rgba(232,106,43,A)', 0.3 + 0.25 * Math.sin(T * 18));
+        }
+      });
+    },
+  };
+}
+
+// Circle 7 — VIOLENCE: the Minotaur chase, then Geryon carries you down
+function makeViolence() {
+  const w = 640;
+  const mino = { x: -70, on: false };
+  return {
+    w, name: 'violence', entry: 10, title: 'VIOLENCE', slide: true, mino,
+    inGap: x => (x > 250 && x < 296) || (x > 430 && x < 472),
+    reset() {
+      resetPlayer(this.entry); clearCombat();
+      mino.x = -70; mino.on = false; this.t = 0; this.phase = 'run';
+    },
+    update(dt) {
+      say('c7', "The seventh: Violence. The Minotaur guards it, and it remembers being cheated. Run — and at the cliff, trust the monster with the honest face.");
+      this.t += dt;
+      if (this.phase === 'run') {
+        if (this.t > 1.0) mino.on = true;
+        if (mino.on) {
+          mino.x += (mino.x < player.x - 130 ? 105 : 82) * dt;
+          if (mino.x > player.x - 10 && Math.abs(player.y - GROUND) < 24)
+            kill('minotaur');
+        }
+        if (player.y > GROUND + 22) kill('fall');
+        if (player.x >= w - 46) {
+          this.phase = 'geryon'; this.pt = 0; player.stun = 3;
+          say('geryon', "Geryon — fraud itself, with a kind and honest face — carried us down the cliff on his back.");
+        }
+      } else {
+        this.pt += dt;
+        if (this.pt > 2.6) nextScene();
+      }
+    },
+    draw(c) {
+      vgrad(c, 0, 0, w, 150, '#2B0808', '#5E1414');
+      // fire-rain, drifting
+      for (let i = 0; i < 40; i++) {
+        const rx = (i * 53 + T * 40) % w;
+        const ry = (i * 71 + T * 90) % 140;
+        box(c, rx, ry, 1, 3, 'rgba(232,106,43,0.6)');
+      }
+      box(c, 0, GROUND, w, 30, '#3A0D0D');
+      for (const [x0, x1] of [[250, 296], [430, 472]])
+        box(c, x0, GROUND, x1 - x0, 30, '#0A0202');
+      // the wood of dead wiring, background
+      for (let x = 60; x < w; x += 120) {
+        box(c, x, 96, 3, GROUND - 96, '#1A0505');
+        for (const [dx, dy] of [[-14, 108], [12, 100], [-8, 90]])
+          c.beginPath(), c.moveTo(x + 1, dy + 14),
+          c.quadraticCurveTo(x + dx, dy + 4, x + dx * 1.4, dy),
+          c.strokeStyle = '#1A0505', c.lineWidth = 2, c.stroke();
+      }
+      if (mino.on && this.phase === 'run') {
+        beast(c, mino.x, GROUND, {
+          len: 46, ht: 18, legH: 13, facing: 1, col: '#120404',
+          phase: T * 14, moving: true, mane: true,
+        });
+        // horns
+        poly(c, [[mino.x + 26, GROUND - 30], [mino.x + 32, GROUND - 40],
+                 [mino.x + 29, GROUND - 28]], '#120404');
+        glowCircle(c, mino.x + 26, GROUND - 26, 8, 'rgba(232,106,43,A)', 0.4);
+      }
+      if (this.phase === 'geryon') {
+        // the funicular with the kind face, hanging at the cliff edge
+        const gy = GROUND - 6 + Math.sin(T * 1.4) * 2;
+        rbox(c, w - 58, gy - 20, 52, 26, 4, '#B8AE96');
+        box(c, w - 52, gy - 14, 10, 6, '#3A2E1E');       // gentle eyes
+        box(c, w - 30, gy - 14, 10, 6, '#3A2E1E');
+        c.strokeStyle = '#3A2E1E'; c.lineWidth = 1;
+        c.beginPath(); c.arc(w - 36, gy - 2, 8, 0.2, Math.PI - 0.2); c.stroke();
+        // the sting below, where no passenger looks
+        poly(c, [[w - 14, gy + 6], [w - 4, gy + 16], [w - 12, gy + 10]],
+             '#420D0D');
+      }
+    },
+  };
+}
+
+// Circle 8 — FRAUD: even the floor lies
+function makeFraud() {
+  const w = 560;
+  const TILE = 24, T0 = 96, TN = 16;
+  return {
+    w, name: 'fraud', entry: 10, title: 'FRAUD', shades: [],
+    isFalse(i) { return i % 3 === 1 || i === 7; },
+    inGap(x) {
+      const i = Math.floor((x - T0) / TILE);
+      return i >= 0 && i < TN && this.holes.has(i);
+    },
+    reset() {
+      resetPlayer(this.entry); clearCombat();
+      this.holes = new Set(); this.standT = 0; this.lastTile = -1;
+      this.shades.length = 0; this.spawned = false;
+    },
+    update(dt) {
+      say('c8', "The eighth circle: Fraud. Believe nothing here. The signs point the wrong way — and even the floor lies.");
+      const i = Math.floor((player.x - T0) / TILE);
+      if (player.on && i >= 0 && i < TN && this.isFalse(i) && !this.holes.has(i)) {
+        if (i === this.lastTile) this.standT += dt;
+        else { this.lastTile = i; this.standT = 0; }
+        if (this.standT > 0.34) {
+          this.holes.add(i); sfx.clunk();
+          fx.push({ x: T0 + i * TILE + 12, y: GROUND + 4, t: 0, kind: 'poof' });
+        }
+      }
+      if (!this.spawned && player.x > 300) {
+        this.spawned = true;
+        this.shades.push({ x: 470, state: 'lurk' }, { x: 520, state: 'lurk' });
+      }
+      updateShades(this, dt);
+      if (player.y > GROUND + 22) kill('fall');
+      if (player.x >= w - 8) nextScene();
+    },
+    draw(c) {
+      vgrad(c, 0, 0, w, 150, '#3A3628', '#6B6552');
+      // office strata and lying signage
+      for (let x = 30; x < w; x += 110) {
+        box(c, x, 60, 70, 34, '#4A4436');
+        for (let wx = x + 6; wx < x + 64; wx += 16)
+          box(c, wx, 66, 10, 12, '#2E2A20');
+      }
+      for (const [sx, dir] of [[120, -1], [300, -1], [470, 1]]) {
+        rbox(c, sx, 44, 30, 12, 2, '#EFE3C0');
+        // arrows that point back the way you came
+        poly(c, dir < 0
+          ? [[sx + 8, 50], [sx + 16, 45.5], [sx + 16, 54.5]]
+          : [[sx + 22, 50], [sx + 14, 45.5], [sx + 14, 54.5]], '#3A3628');
+        box(c, sx + (dir < 0 ? 17 : 6), 48.5, 8, 3, '#3A3628');
+      }
+      // the floor: tiles, the false ones invisible among them
+      box(c, 0, GROUND, T0, 30, '#4A4436');
+      box(c, T0 + TN * TILE, GROUND, w - T0 - TN * TILE, 30, '#4A4436');
+      for (let i = 0; i < TN; i++) {
+        if (this.holes.has(i)) { box(c, T0 + i * TILE, GROUND, TILE, 30, '#0C0B08'); continue; }
+        box(c, T0 + i * TILE, GROUND, TILE, 30, '#4A4436');
+        box(c, T0 + i * TILE, GROUND, TILE - 1, 2, '#6B6552');
+      }
+      this.shades.forEach((sh, i) => drawShade(c, sh, i));
+    },
+  };
+}
+
+// Circle 9 — TREACHERY: ice underfoot, wind that must be crawled,
+// and Lucifer at the center — where down becomes up
+function makeTreachery() {
+  const w = 560;
+  return {
+    w, name: 'treachery', entry: 10, title: 'TREACHERY', ice: true,
+    reset() { resetPlayer(this.entry); clearCombat(); this.flip = 0; },
+    update(dt) {
+      say('c9', "The ninth circle: Treachery. Ice to the horizon — and frozen at its center, the traitor of traitors. Lucifer himself. The wind from his wings will throw you; crawl through it.");
+      // wind sectors off the wings
+      for (const [x0, x1] of [[170, 250], [320, 400]]) {
+        if (player.x > x0 && player.x < x1)
+          player.x -= (player.crouch && player.on ? 10 : 52) * dt;
+      }
+      if (player.x > 480 && !this.flip) {
+        say('climb', "There was no way around him — only down his side. And at the very center of the world, down became up.");
+        player.stun = 4;
+      }
+      if (player.x > 480) {
+        this.flip = Math.min(1, this.flip + dt / 2.4);
+        if (this.flip >= 1) { mode = 'end'; modeT = 0; }
+      }
+      if (player.x >= w - 8) player.x = w - 8;
+    },
+    draw(c) {
+      vgrad(c, 0, 0, w, 148, '#1D2930', '#5F7C87');
+      for (let i = 0; i < 30; i++) {                     // wind shear
+        const rx = (i * 67 + T * 160) % w;
+        box(c, rx, 30 + (i * 37) % 110, 8 + i % 8, 0.8, 'rgba(199,220,226,0.5)');
+      }
+      vgrad(c, 0, 148, w, 32, '#8FAAB4', '#B4CFD8');     // the ice
+      for (let x = 20; x < w; x += 70)
+        box(c, x, 154 + (x % 3) * 4, 16, 1, '#6E8B96');
+      // the sealed damned, silhouettes under the surface
+      for (const [sx, sy] of [[60, 162], [150, 170], [290, 165], [420, 168]])
+        rbox(c, sx, sy, 13, 3, 1, '#54707B');
+      // LUCIFER, filling the right of the world
+      poly(c, [[470, 10], [560, 4], [560, 150], [452, 150]], '#0A0D10');
+      poly(c, [[470, 30], [400, 6], [402, 40], [456, 46]], '#131A20'); // wing
+      for (const [ex, ey, ec] of [[492, 46, '#B33A26'], [478, 56, '#8A8F96'],
+                                   [508, 56, '#C9B26B']]) {
+        box(c, ex, ey, 2.2, 2.2, ec);
+        box(c, ex + 6, ey, 2.2, 2.2, ec);
+      }
+      // frost on him
+      for (let i = 0; i < 26; i++)
+        box(c, 460 + (i * 31) % 96, 60 + (i * 47) % 86, 1.4, 1.2,
+            'rgba(199,220,226,0.7)');
+    },
+  };
+}
+
 const scenes = [makePark(), makeLeopard(), makeChase(), makeWolf(),
-                makeHall(), makeVestibule(), makeAcheron()];
+                makeHall(), makeVestibule(), makeAcheron(),
+                makeLimbo(), makeLustLvl(), makeGluttony(), makeGreed(),
+                makeWrath(), makeHeresy(), makeViolence(), makeFraud(),
+                makeTreachery()];
 
 function nextScene() {
   sceneIdx++;
@@ -1225,6 +1844,14 @@ function drawTitle(c) {
     c.fillStyle = '#8A8578'; c.font = '8px system-ui, sans-serif';
     c.fillText('press any key', W / 2, 150);
   }
+  // subtitles toggle
+  c.fillStyle = 'rgba(239,227,192,0.08)';
+  c.fillRect(96, 158, 128, 16);
+  c.strokeStyle = 'rgba(239,227,192,0.25)';
+  c.strokeRect(96.5, 158.5, 127, 15);
+  c.fillStyle = subsOn ? '#B8AE96' : '#55524A';
+  c.font = '7px system-ui, sans-serif';
+  c.fillText('subtitles: ' + (subsOn ? 'ON' : 'OFF') + '   (S / tap)', W / 2, 168);
 }
 function drawQuote(c) {
   box(c, 0, 0, W, H, '#000');
@@ -1238,27 +1865,30 @@ function drawQuote(c) {
 }
 function drawEnd(c) {
   box(c, 0, 0, W, H, '#000');
-  if (modeT < 1.1) {   // the gate's flicker — gone before it can be read
-    if (modeT > 0.5 && modeT < 0.62) {
-      c.fillStyle = '#3D2A1E'; c.font = '600 10px Georgia, serif';
-      c.textAlign = 'center';
-      c.fillText('A B A N D O N   A L L   H O P E', W / 2, 88);
-    }
+  if (modeT < 0.9) {   // a black beat before the sky
     return;
   }
-  const a = Math.min(1, (modeT - 1.1) / 1.5);
-  c.globalAlpha = a; c.textAlign = 'center';
-  glowCircle(c, W / 2, 84, 70, ROSE, 0.14 * a);
-  c.fillStyle = '#E8D9A0'; c.font = '600 20px Georgia, serif';
-  c.fillText('L I M B O', W / 2, 80);
-  c.fillStyle = '#8A8578'; c.font = 'italic 9px Georgia, serif';
-  c.fillText('the first circle', W / 2, 96);
+  // the stars — the poem's last word, and ours
+  const a = Math.min(1, (modeT - 1.1) / 2);
+  vgrad(c, 0, 0, W, H, '#0A1020', '#2B3A5C');
+  for (let i = 0; i < 60; i++) {                 // stars arriving one by one
+    if (modeT - 1.1 < i * 0.09) continue;
+    const sx = (i * 97) % W, sy = (i * 53) % 120;
+    c.globalAlpha = 0.4 + 0.6 * Math.abs(Math.sin(T * 1.2 + i));
+    box(c, sx, sy, i % 5 ? 1 : 1.6, i % 5 ? 1 : 1.6, '#F2E3B3');
+  }
+  c.globalAlpha = a;
+  vgrad(c, 0, 150, W, 30, 'rgba(242,227,179,0)', '#3D3A2E');
+  c.textAlign = 'center';
+  c.fillStyle = '#EFE3C0'; c.font = 'italic 600 12px Georgia, serif';
+  c.fillText('…and we came forth,', W / 2, 78);
+  c.fillText('to see again the stars.', W / 2, 94);
   c.fillStyle = '#6E6E73'; c.font = '8px system-ui, sans-serif';
-  c.fillText('end of the prologue slice — the descent continues', W / 2, 118);
+  c.fillText('the descent is done', W / 2, 122);
   if (deaths)
-    c.fillText(deaths + (deaths === 1 ? ' death' : ' deaths'), W / 2, 130);
+    c.fillText(deaths + (deaths === 1 ? ' death' : ' deaths'), W / 2, 134);
   c.fillStyle = '#8A8578';
-  if (Math.sin(T * 3) > -0.2) c.fillText('press R to descend again', W / 2, 148);
+  if (Math.sin(T * 3) > -0.2) c.fillText('press R to descend again', W / 2, 150);
   c.globalAlpha = 1;
 }
 
@@ -1269,7 +1899,7 @@ function frame(ts) {
   last = ts; T += dt; modeT += dt;
   const sc = currentScene();
 
-  if (mode === 'title' && anyKeyPulse && modeT > 0.4) {
+  if (mode === 'title' && anyKeyPulse && modeT > 0.4 && !suppressStart) {
     mode = 'quote'; modeT = 0;
     say('open', "Midway through the journey of my life, I came to myself in a dark wood, for I had lost the way.", false);
   } else if (mode === 'quote' && (modeT > 5 || (anyKeyPulse && modeT > 0.8))) {
@@ -1287,23 +1917,32 @@ function frame(ts) {
       if (mode !== 'end') { mode = 'play'; modeT = 0; }
     }
   } else if (mode === 'end') {
-    if (modeT > 2.8)
-      say('endline', "Here ends the prologue. The descent continues.", false);
+    if (modeT > 2.2)
+      say('endline', "And we came forth, to see again the stars.", false);
     if (keys.KeyR || (touchRestart && modeT > 1.2)) {
       mode = 'title'; modeT = 0; deaths = 0; sceneIdx = 0;
       player.gunHas = false; scenes[0].reset(); clearNarration();
     }
   }
-  anyKeyPulse = false; touchRestart = false;
+  anyKeyPulse = false; touchRestart = false; suppressStart = false;
   subT -= dt;
+  if (lastSceneIdx !== sceneIdx) { lastSceneIdx = sceneIdx; titleT = 0; }
+  titleT += dt;
 
   // the subway is the score
   if (AC) {
     if (mode === 'title' || mode === 'quote' || mode === 'end')
       ambience('card', 220, 0.015);
     else if (sceneIdx <= 3) ambience('surface', 640, 0.035);   // night wind
-    else if (sceneIdx === 6) ambience('water', 290, 0.05);     // the Acheron
+    else if (sceneIdx === 6 || sceneIdx === 11)
+      ambience('water', 290, 0.05);                            // the rivers
     else ambience('under', 150, 0.045);                        // deep rumble
+    // one root note per depth, falling as you fall
+    const ROOTS = [110, 98, 87.3, 82.4, 73.4, 69.3, 61.7,
+                   65.4, 58.3, 55, 61.7, 49, 46.2, 43.7, 41.2, 36.7];
+    music(mode === 'play' || mode === 'dead' || mode === 'drop'
+          ? ROOTS[Math.min(sceneIdx, ROOTS.length - 1)] : 82.4);
+    bellTick();
   }
 
   // render — size the canvas to the *visible* viewport every frame, so
@@ -1332,6 +1971,11 @@ function frame(ts) {
     camX = Math.max(0, Math.min(sc.w - W, player.x - W / 2));
     const shk = sc.quake || 0;
     ctx.save();
+    if (sc.flip) {                 // the world turns over at its center
+      ctx.translate(W / 2, H / 2);
+      ctx.rotate(Math.PI * sc.flip);
+      ctx.translate(-W / 2, -H / 2);
+    }
     ctx.translate(-camX + (Math.random() - 0.5) * 3.2 * shk,
                   (Math.random() - 0.5) * 2.6 * shk);
     sc.draw(ctx);
@@ -1358,6 +2002,18 @@ function frame(ts) {
     if (mode === 'play' && modeT < 0.3) {           // respawn fade-in
       ctx.fillStyle = `rgba(0,0,0,${1 - modeT / 0.3})`;
       ctx.fillRect(0, 0, W, H);
+    }
+    // circle title card, held for a breath on arrival
+    if (sc.title && titleT < 3.4 && mode === 'play') {
+      const a = Math.min(1, titleT / 0.6) *
+                (titleT > 2.6 ? Math.max(0, 1 - (titleT - 2.6) / 0.8) : 1);
+      ctx.globalAlpha = a;
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(0, 20, W, 30);
+      ctx.fillStyle = '#E8D9A0';
+      ctx.font = '600 15px Georgia, serif'; ctx.textAlign = 'center';
+      ctx.fillText(sc.title.split('').join(' '), W / 2, 40);
+      ctx.globalAlpha = 1;
     }
   }
   drawSubtitle(ctx);
