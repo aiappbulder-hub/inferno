@@ -15,6 +15,7 @@ addEventListener('keydown', e => {
     e.preventDefault();
   if (!keys[e.code]) anyKeyPulse = true;
   keys[e.code] = true;
+  audioInit();
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 
@@ -40,6 +41,7 @@ function refreshTouches() {
 }
 cv.addEventListener('pointerdown', e => {
   e.preventDefault();
+  audioInit();
   if (e.pointerType !== 'mouse') touchUI = true;
   anyKeyPulse = true; touchRestart = true;
   ptrs.set(e.pointerId, { x: (e.clientX - uiOx) / uiS, y: (e.clientY - uiOy) / uiS });
@@ -137,6 +139,11 @@ function figure(c, x, y, h, coat, o = {}) {
   } else {
     c.beginPath(); c.ellipse(hx0, hy - hr*0.18, hr, hr*0.9, 0, Math.PI, 0);
     c.fillStyle = hair; c.fill();
+    // back of the head, so the profile reads
+    box(c, hx0 - hr - 0.15, hy - hr * 0.55, hr * 0.6, hr * 1.15, hair);
+  }
+  if (o.face !== false) {          // one eye, forward — a face in profile
+    box(c, hx0 + hr * 0.32, hy - hr * 0.22, 0.85, 0.85, o.eye || '#241A12');
   }
   c.restore();
 }
@@ -238,7 +245,9 @@ function updatePlayer(dt, sc) {
     if (player.crouch) s = (Math.abs(player.vx) > WALK + 5 && sc.slide) ? RUN : WALK * 0.6;
     player.vx = dir * s;
     if (dir) player.facing = dir;
-    if (jumpK() && player.on && !player.crouch) { player.vy = JUMPV; player.on = false; }
+    if (jumpK() && player.on && !player.crouch) {
+      player.vy = JUMPV; player.on = false; sfx.jump();
+    }
   }
   player.x += player.vx * dt;
   if (!player.on) {
@@ -262,6 +271,61 @@ function drawPlayer(c) {
   });
 }
 
+// ----------------------------------------------------------------- audio --
+// Everything synthesized: filtered-noise ambience, oscillator sfx.
+// The subway is the score; music never plays.
+let AC = null, master = null, ambGain = null, ambFilter = null, ambKey = '';
+function audioInit() {
+  if (AC) { AC.resume(); return; }
+  try { AC = new (window.AudioContext || window.webkitAudioContext)(); }
+  catch (e) { return; }
+  master = AC.createGain(); master.gain.value = 0.5;
+  master.connect(AC.destination);
+  const len = AC.sampleRate * 2;
+  const buf = AC.createBuffer(1, len, AC.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  const src = AC.createBufferSource();
+  src.buffer = buf; src.loop = true;
+  ambFilter = AC.createBiquadFilter();
+  ambFilter.type = 'lowpass'; ambFilter.frequency.value = 500;
+  ambGain = AC.createGain(); ambGain.gain.value = 0;
+  src.connect(ambFilter); ambFilter.connect(ambGain); ambGain.connect(master);
+  src.start();
+}
+function ambience(key, freq, level) {
+  if (!AC || ambKey === key) return;
+  ambKey = key;
+  ambFilter.frequency.setTargetAtTime(freq, AC.currentTime, 0.6);
+  ambGain.gain.setTargetAtTime(level, AC.currentTime, 0.9);
+}
+function tone(f0, f1, dur, type = 'square', vol = 0.12, delay = 0) {
+  if (!AC) return;
+  const t0 = AC.currentTime + delay;
+  const o = AC.createOscillator(), g = AC.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(f0, t0);
+  o.frequency.exponentialRampToValueAtTime(Math.max(28, f1), t0 + dur);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.connect(g); g.connect(master);
+  o.start(t0); o.stop(t0 + dur + 0.03);
+}
+const sfx = {
+  jump:   () => tone(200, 320, 0.09, 'sine', 0.045),
+  death:  () => tone(150, 38, 0.5, 'triangle', 0.22),
+  shot:   () => tone(950, 190, 0.11, 'square', 0.09),
+  shield: () => tone(500, 680, 0.2, 'sine', 0.07),
+  blast:  () => { tone(320, 55, 0.42, 'sawtooth', 0.16);
+                  tone(1300, 220, 0.3, 'square', 0.07); },
+  ebolt:  () => tone(210, 85, 0.2, 'sawtooth', 0.08),
+  hiss:   () => tone(820, 210, 0.28, 'triangle', 0.05),
+  clunk:  () => tone(170, 55, 0.16, 'square', 0.11),
+  rumble: () => tone(64, 24, 1.6, 'triangle', 0.26),
+  punch:  () => { tone(1500, 1100, 0.03, 'square', 0.09);
+                  tone(1500, 1100, 0.03, 'square', 0.09, 0.11); },
+};
+
 // ---------------------------------------------------------------- combat --
 // The gun, found beneath the surface. Another World's grammar:
 // tap = shot, hold = plant a shield, long hold = charge blast.
@@ -279,10 +343,15 @@ function updateGun(dt) {
   const gy = player.y - (player.crouch ? 9 : 14);
   if (t >= 1.1) {
     shots.push({ x: player.x + dir * 7, y: gy, vx: dir * 300, super: true });
+    sfx.blast();
   } else if (t >= 0.35) {
-    if (shields.length < 2) shields.push({ x: player.x + dir * 7, hp: 3, t: 0 });
+    if (shields.length < 2) {
+      shields.push({ x: player.x + dir * 7, hp: 3, t: 0 });
+      sfx.shield();
+    }
   } else {
     shots.push({ x: player.x + dir * 7, y: gy, vx: dir * 330, super: false });
+    sfx.shot();
   }
 }
 
@@ -309,6 +378,7 @@ function updateProjectiles(dt, sc) {
     if (sc.shades) for (const sh of sc.shades) {
       if (!sh.dead && Math.abs(s.x - sh.x) < 8) {
         sh.dead = 0.001; fx.push({ x: sh.x, y: GROUND - 14, t: 0, kind: 'poof' });
+        sfx.hiss();
         if (!s.super) used = true;
         break;
       }
@@ -327,7 +397,7 @@ function updateProjectiles(dt, sc) {
     }
     if (!used && sc.gate && !sc.gate.broken && s.x > sc.gate.x - 4) {
       if (s.super) {
-        sc.gate.broken = true;
+        sc.gate.broken = true; sfx.clunk();
         for (let k = 0; k < 6; k++)
           fx.push({ x: sc.gate.x + (k % 2) * 4 - 2, y: GROUND - 6 - k * 5,
                     t: 0, kind: 'poof' });
@@ -441,6 +511,7 @@ function kill(cause) {
   if (mode !== 'play') return;
   deathCause = cause; deaths++;
   mode = 'dead'; modeT = 0;
+  sfx.death();
 }
 
 // ---------------------------------------------------------------- scenes --
@@ -665,7 +736,7 @@ function makeWolf() {
       // the grate: the only open way is down
       if (player.on && down() && player.x > GRATE0 + 4 && player.x < GRATE1 - 2
           && player.maxX > 60) {
-        mode = 'drop'; modeT = 0;
+        mode = 'drop'; modeT = 0; sfx.rumble();
       }
     },
     draw(c) {
@@ -734,8 +805,9 @@ function makeHall() {
                          { x: 176, state: 'lurk' });
       }
       updateShades(this, dt);
-      if (this.wave && !this.doorOpen && this.shades.every(s => s.dead))
-        this.doorOpen = true;
+      if (this.wave && !this.doorOpen && this.shades.every(s => s.dead)) {
+        this.doorOpen = true; sfx.clunk();
+      }
       if (!this.doorOpen) player.x = Math.min(player.x, 592);
       else if (player.x >= w - 8) nextScene();
     },
@@ -805,6 +877,7 @@ function makeVestibule() {
         } else if (demon.state === 'fire') {
           if (demon.t > demon.n * 0.32) {
             eBolts.push({ x: demon.x - 9, y: GROUND - 13, vx: -175 });
+            sfx.ebolt();
             demon.n++;
             if (demon.n >= 3) { demon.state = 'pause'; demon.t = 0; }
           }
@@ -906,6 +979,9 @@ function makeAcheron() {
         }
         player.x = Math.min(player.x, a - 8);
       } else if (this.phase === 'refusal') {
+        if (!this.punched && this.pt > 1.3) {        // Virgil's leitmotif
+          this.punched = true; sfx.punch();
+        }
         if (this.pt > 2.6) this.phase = 'cross';
       } else if (this.phase === 'cross') {
         if (!car.moving && player.on && player.x > a + 4) car.moving = true;
@@ -928,6 +1004,7 @@ function makeAcheron() {
       } else if (this.phase === 'ashore') {
         if (player.x > w - 44) {
           this.phase = 'quake'; this.pt = 0; player.stun = 3;
+          sfx.rumble();
         }
       } else if (this.phase === 'quake') {
         this.quake = Math.min(1, this.pt / 0.4);
@@ -1078,15 +1155,17 @@ function drawEnd(c) {
   }
   const a = Math.min(1, (modeT - 1.1) / 1.5);
   c.globalAlpha = a; c.textAlign = 'center';
-  glowCircle(c, W / 2, 96, 60, ROSE, 0.10 * a);
-  c.fillStyle = '#EFE3C0'; c.font = '600 13px Georgia, serif';
-  c.fillText('the descent continues', W / 2, 86);
+  glowCircle(c, W / 2, 84, 70, ROSE, 0.14 * a);
+  c.fillStyle = '#E8D9A0'; c.font = '600 20px Georgia, serif';
+  c.fillText('L I M B O', W / 2, 80);
+  c.fillStyle = '#8A8578'; c.font = 'italic 9px Georgia, serif';
+  c.fillText('the first circle', W / 2, 96);
   c.fillStyle = '#6E6E73'; c.font = '8px system-ui, sans-serif';
-  c.fillText('end of the prologue slice', W / 2, 104);
+  c.fillText('end of the prologue slice — the descent continues', W / 2, 118);
   if (deaths)
-    c.fillText(deaths + (deaths === 1 ? ' death' : ' deaths'), W / 2, 116);
+    c.fillText(deaths + (deaths === 1 ? ' death' : ' deaths'), W / 2, 130);
   c.fillStyle = '#8A8578';
-  if (Math.sin(T * 3) > -0.2) c.fillText('press R to descend again', W / 2, 142);
+  if (Math.sin(T * 3) > -0.2) c.fillText('press R to descend again', W / 2, 148);
   c.globalAlpha = 1;
 }
 
@@ -1118,6 +1197,15 @@ function frame(ts) {
   }
   anyKeyPulse = false; touchRestart = false;
 
+  // the subway is the score
+  if (AC) {
+    if (mode === 'title' || mode === 'quote' || mode === 'end')
+      ambience('card', 220, 0.015);
+    else if (sceneIdx <= 3) ambience('surface', 640, 0.035);   // night wind
+    else if (sceneIdx === 6) ambience('water', 290, 0.05);     // the Acheron
+    else ambience('under', 150, 0.045);                        // deep rumble
+  }
+
   // render
   const s = Math.min(innerWidth / W, innerHeight / H);
   if (cv.width !== innerWidth * devicePixelRatio) {
@@ -1148,12 +1236,12 @@ function frame(ts) {
     ctx.restore();
     // shadow lift — keeps the mood, uncrushes the blacks
     ctx.globalCompositeOperation = 'screen';
-    ctx.fillStyle = 'rgb(30,34,31)';
+    ctx.fillStyle = 'rgb(44,48,46)';
     ctx.fillRect(0, 0, W, H);
     ctx.globalCompositeOperation = 'source-over';
     // vignette
     const vg = ctx.createRadialGradient(W/2, H/2, H*0.45, W/2, H/2, H*0.95);
-    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.32)');
+    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.24)');
     ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
     if (mode === 'dead') {
       ctx.fillStyle = `rgba(0,0,0,${Math.min(1, modeT * 3)})`;

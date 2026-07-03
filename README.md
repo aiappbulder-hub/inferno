@@ -17,7 +17,10 @@ commitment.
 
 ## Play the slice
 
-Open [`game/index.html`](game/index.html) in a browser — no build step, no
+**Online:** https://aiappbulder-hub.github.io/inferno/ (deployed from
+`game/` by the [Pages workflow](.github/workflows/pages.yml) on every push).
+
+Or open [`game/index.html`](game/index.html) locally — no build step, no
 dependencies. Arrow keys move, **Shift** runs, **Space** jumps, **↓**
 crouches, **X** fires once you have the gun (tap = shot, hold = shield,
 long-hold = charge blast). On phones, touch buttons appear automatically.
