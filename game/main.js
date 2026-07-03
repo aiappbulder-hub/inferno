@@ -359,6 +359,47 @@ const sfx = {
                   tone(1500, 1100, 0.03, 'square', 0.09, 0.11); },
 };
 
+// ------------------------------------------------------------- narration --
+// A quiet narrator (built-in browser voice) tells the story for players
+// who don't know the poem. Subtitles always; each line speaks once per run.
+const spoken = new Set();
+let subText = '', subT = 0;
+function say(id, text, showSub = true) {
+  if (spoken.has(id)) return;
+  spoken.add(id);
+  if (showSub) { subText = text; subT = Math.max(2.8, text.length * 0.075); }
+  try {
+    if (window.speechSynthesis) {
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.rate = 0.95; u.pitch = 0.8; u.volume = 0.9;
+      speechSynthesis.speak(u);
+    }
+  } catch (e) { /* narration is optional */ }
+}
+function clearNarration() {
+  spoken.clear(); subText = ''; subT = 0;
+  try { if (window.speechSynthesis) speechSynthesis.cancel(); } catch (e) {}
+}
+function drawSubtitle(c) {
+  if (subT <= 0 || !subText) return;
+  c.font = 'italic 8px Georgia, serif';
+  const words = subText.split(' '), lines = [];
+  let cur = '';
+  for (const w of words) {
+    const t = cur ? cur + ' ' + w : w;
+    if (c.measureText(t).width > 225) { lines.push(cur); cur = w; }
+    else cur = t;
+  }
+  if (cur) lines.push(cur);
+  const lh = 10, y0 = 172 - lines.length * lh;
+  const wmax = Math.max(...lines.map(l => c.measureText(l).width));
+  c.fillStyle = 'rgba(0,0,0,0.5)';
+  c.fillRect(W / 2 - wmax / 2 - 7, y0 - 8, wmax + 14, lines.length * lh + 7);
+  c.fillStyle = '#E8DCC0'; c.textAlign = 'center';
+  lines.forEach((l, i) => c.fillText(l, W / 2, y0 + i * lh));
+}
+
 // ---------------------------------------------------------------- combat --
 // The gun, found beneath the surface. Another World's grammar:
 // tap = shot, hold = plant a shield, long hold = charge blast.
@@ -557,6 +598,7 @@ function makePark() {
     w, name: 'park', entry: 14, slide: false,
     reset() { resetPlayer(this.entry); },
     update(dt) {
+      say('p1', "I was only walking home. But the park felt wrong that night.");
       if (player.x >= w - 7) nextScene();
     },
     draw(c) {
@@ -605,6 +647,7 @@ function makeLeopard() {
                          vx: 0, yy: 0, vy: 0 });
     },
     update(dt) {
+      say('p2', "A beast barred the path — sleek, patient, hungry. It struck at anything standing tall.");
       L.t += dt;
       const standing = !player.crouch;
       if (L.state === 'patrol') {
@@ -694,6 +737,7 @@ function makeChase() {
       lion.x = -60; lion.on = false; this.t0 = 0;
     },
     update(dt) {
+      say('p3', "Then a lion — and it was hunting me. I ran.");
       this.t0 = (this.t0 || 0) + dt;
       if (this.t0 > 0.9) lion.on = true;
       if (lion.on) {
@@ -759,6 +803,7 @@ function makeWolf() {
     w, name: 'wolf', entry: 10, slide: false, wolf,
     reset() { resetPlayer(this.entry); wolf.x = 276; wolf.idle = 0; },
     update(dt) {
+      say('p4', "Last came a starving she-wolf, matching me step for step. There was no way past her — only the broken grate, and whatever lay below.");
       // she advances as you do; there is no way past her
       const press = Math.max(0, player.maxX - 46);
       wolf.x = Math.min(wolf.x, 276 - press * 0.30);
@@ -819,6 +864,9 @@ function makeHall() {
       v.x = 150;
     },
     update(dt) {
+      say('p5', "I fell into a dark older than the city. And someone was waiting for me.");
+      if (player.x > 64)
+        say('virgil', "He said his name was Virgil — a poet, dead two thousand years, sent to guide me down through Hell itself. His lamp held the dark back. I followed.");
       // Virgil leads, lamp in hand, to the far door
       const tv = this.wave ? 505 : Math.min(505, player.x + 52);
       const dv = tv - v.x;
@@ -830,10 +878,12 @@ function makeHall() {
       if (!player.gunHas && player.x > 344) {
         player.gunHas = true;
         fx.push({ x: 352, y: GROUND - 16, t: 0, kind: 'hit' });
+        say('gun', "A watchman's pistol, still in its kiosk. Its owner would not be needing it. Tap to fire; hold to raise a shield.");
       }
       // Virgil kneels at the lock; the dark comes loose
       if (!this.wave && player.x > 430) {
         this.wave = true;
+        say('shades', "The restless dead came for the light. They fall to a single shot — if you are quick.");
         this.shades.push({ x: 620, state: 'lurk' }, { x: 566, state: 'lurk' },
                          { x: 176, state: 'lurk' });
       }
@@ -896,6 +946,7 @@ function makeVestibule() {
       this.gate.broken = false;
     },
     update(dt) {
+      say('p6', "Virgil called this the Vestibule. These souls chose nothing in life — now they chase a blank banner, forever.");
       if (!this.spawned && player.x > 110) {
         this.spawned = true;
         this.shades.push({ x: 290, state: 'lurk' }, { x: 350, state: 'lurk' });
@@ -904,7 +955,10 @@ function makeVestibule() {
       if (!demon.dead) {
         demon.t += dt;
         if (demon.state === 'idle') {
-          if (player.x > demon.x - 150) { demon.state = 'aim'; demon.t = 0; }
+          if (player.x > demon.x - 150) {
+            demon.state = 'aim'; demon.t = 0;
+            say('demon', "A demon held the way. Virgil warned me: its kind must pause for breath after every volley. Shield its fire — strike its opening.");
+          }
         } else if (demon.state === 'aim' && demon.t > 0.7) {
           demon.state = 'fire'; demon.t = 0; demon.n = 0;
         } else if (demon.state === 'fire') {
@@ -918,6 +972,8 @@ function makeVestibule() {
           demon.state = 'aim'; demon.t = 0;
         }
         if (Math.abs(player.x - demon.x) < 12) kill('demon');
+      } else {
+        say('gate', "Beyond it, a gate rusted shut. Hold the trigger until the charge sings, and let go.");
       }
       if (!this.gate.broken) player.x = Math.min(player.x, this.gate.x - 10);
       else if (player.x >= w - 8) nextScene();
@@ -1004,11 +1060,13 @@ function makeAcheron() {
       this.h1 = false; this.h2 = false; this.quake = 0;
     },
     update(dt) {
+      say('p7', "We came to a black river underground. Virgil named it: the Acheron — the border of Hell.");
       this.pt += dt;
       const a = car.x - 30, b = car.x + 30;
       if (this.phase === 'approach') {
         if (player.x >= a - 8) {
           this.phase = 'refusal'; this.pt = 0; player.stun = 2.6;
+          say('charon', "The ferryman was Charon, and he carries only the dead. He refused me — until Virgil showed a ticket that cannot be refused.");
         }
         player.x = Math.min(player.x, a - 8);
       } else if (this.phase === 'refusal') {
@@ -1027,6 +1085,7 @@ function makeAcheron() {
           if (prog > 0.3 && !this.h1) {
             this.h1 = true;
             this.hands.push({ x: car.x - 22, state: 'tele', t: 0 });
+            say('hands', "The drowned do not care for passengers. Keep clear of their hands — or answer them.");
           }
           if (prog > 0.62 && !this.h2) {
             this.h2 = true;
@@ -1038,6 +1097,7 @@ function makeAcheron() {
         if (player.x > w - 44) {
           this.phase = 'quake'; this.pt = 0; player.stun = 3;
           sfx.rumble();
+          say('quake', "On the far shore the earth shook, and a red light rose from the deep. Limbo — the first circle — was waiting.");
         }
       } else if (this.phase === 'quake') {
         this.quake = Math.min(1, this.pt / 0.4);
@@ -1158,7 +1218,7 @@ function drawTitle(c) {
   const s = 'I N F E R N O';
   c.fillText(s, W / 2, 70);
   c.fillStyle = '#6E6E73'; c.font = '9px Georgia, serif';
-  c.fillText('a wordless descent', W / 2, 88);
+  c.fillText('a narrated descent', W / 2, 88);
   c.fillStyle = '#3E3E42'; c.font = '7px system-ui, sans-serif';
   c.fillText('← → move   ⇧ run   space jump   ↓ crouch   x fire', W / 2, 132);
   if (Math.sin(T * 3) > -0.2) {
@@ -1209,8 +1269,10 @@ function frame(ts) {
   last = ts; T += dt; modeT += dt;
   const sc = currentScene();
 
-  if (mode === 'title' && anyKeyPulse && modeT > 0.4) { mode = 'quote'; modeT = 0; }
-  else if (mode === 'quote' && (modeT > 5 || (anyKeyPulse && modeT > 0.8))) {
+  if (mode === 'title' && anyKeyPulse && modeT > 0.4) {
+    mode = 'quote'; modeT = 0;
+    say('open', "Midway through the journey of my life, I came to myself in a dark wood, for I had lost the way.", false);
+  } else if (mode === 'quote' && (modeT > 5 || (anyKeyPulse && modeT > 0.8))) {
     mode = 'play'; modeT = 0; sceneIdx = 0; scenes[0].reset();
   } else if (mode === 'play') {
     updatePlayer(dt, sc);
@@ -1224,11 +1286,16 @@ function frame(ts) {
       nextScene();
       if (mode !== 'end') { mode = 'play'; modeT = 0; }
     }
-  } else if (mode === 'end' && (keys.KeyR || (touchRestart && modeT > 1.2))) {
-    mode = 'title'; modeT = 0; deaths = 0; sceneIdx = 0;
-    player.gunHas = false; scenes[0].reset();
+  } else if (mode === 'end') {
+    if (modeT > 2.8)
+      say('endline', "Here ends the prologue. The descent continues.", false);
+    if (keys.KeyR || (touchRestart && modeT > 1.2)) {
+      mode = 'title'; modeT = 0; deaths = 0; sceneIdx = 0;
+      player.gunHas = false; scenes[0].reset(); clearNarration();
+    }
   }
   anyKeyPulse = false; touchRestart = false;
+  subT -= dt;
 
   // the subway is the score
   if (AC) {
@@ -1293,6 +1360,7 @@ function frame(ts) {
       ctx.fillRect(0, 0, W, H);
     }
   }
+  drawSubtitle(ctx);
   drawTouchUI(ctx);
   ctx.restore();
   requestAnimationFrame(frame);
@@ -1305,6 +1373,7 @@ if (q.has('scene')) {
   scenes[sceneIdx].reset();
 }
 window.G = { player, scenes, get mode() { return mode; },
-             get sceneIdx() { return sceneIdx; }, get deaths() { return deaths; } };
+             get sceneIdx() { return sceneIdx; }, get deaths() { return deaths; },
+             get sub() { return subText; }, get subOn() { return subT > 0; } };
 
 requestAnimationFrame(frame);

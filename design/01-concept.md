@@ -20,8 +20,11 @@ machine heart of the system.
 
 ## Pillars
 
-1. **No HUD, no text, no dialogue.** Diegetic transit signage only; one
-   ribbon plaque names each circle.
+1. **No HUD; a narrator instead of exposition.** A quiet narrator (the
+   browser's built-in voice, subtitled) speaks a line or two at each story
+   beat, so the poem lands for players who have never read it. Otherwise
+   the screen stays clean: diegetic transit signage only; one plaque names
+   each circle.
 2. **One camera, one art style.** Gameplay and cutscenes are continuous
    within a level.
 3. **Death is the teacher.** Frequent, fast, fair; instant restart at a

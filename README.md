@@ -57,8 +57,9 @@ the screen instantly; that's the design.
 
 ## The rules in one breath
 
-No HUD, no text, no dialogue. One camera, one art style. Death is the
-teacher. A fixed verb set recontextualized every circle — and below the
-surface, one weapon with *Another World*'s three tricks: shot, shield,
-charge. If a scene isn't in the poem, it isn't in the game — the modern
-staging changes how it looks, never what happens.
+No HUD. One camera, one art style. Death is the teacher. A fixed verb set
+recontextualized every circle — and below the surface, one weapon with
+*Another World*'s three tricks: shot, shield, charge. A quiet narrator
+(the browser's built-in voice, with subtitles) tells the story for players
+who don't know the poem. If a scene isn't in the poem, it isn't in the
+game — the modern staging changes how it looks, never what happens.
