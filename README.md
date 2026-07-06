@@ -28,14 +28,16 @@ A narrator (built-in browser voice) tells the story; subtitles can be
 toggled on the title screen (**S** or tap the button). A synthesized
 score descends one root note per circle.
 
-Sixteen screens — the full descent: the park, the leopard, the lion
-chase, the she-wolf, the dark ticket hall, the vestibule, the Acheron
-crossing, then all nine circles (Limbo's surging crowds and Minos, the
-gale of Lust, Cerberus in Gluttony's mire, Greed's carts, the Styx and
-the gate of Dis, Heresy's burning tombs, the Minotaur chase and Geryon,
-Fraud's lying floors, and the ice of Treachery — ending where the poem
-ends, with the stars). Death restarts the screen instantly; that's the
-design.
+Seventeen screens — the full descent: the park (where a stile and a low
+branch teach jump and crouch before anything with teeth asks for them),
+the leopard, the lion chase, the she-wolf, the dark ticket hall, the
+Gate of Hell itself, the vestibule, the Acheron crossing, then all nine
+circles (Limbo's surging crowds, green-glass lounge and Minos, the gale
+of Lust, Cerberus in Gluttony's mire, Greed's carts, the Styx and the
+gate of Dis, Heresy's burning tombs, the Minotaur chase and Geryon,
+Fraud's lying floors and its Malebranche, and the ice of Treachery —
+ending where the poem ends, with the stars). Death restarts the screen
+instantly; that's the design.
 
 ## Documents
 

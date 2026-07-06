@@ -145,6 +145,12 @@ function vgrad(c, x, y, w, h, c0, c1) {
   g.addColorStop(0, c0); g.addColorStop(1, c1);
   c.fillStyle = g; c.fillRect(x, y, w, h);
 }
+function cable(c, x0, x1, y0, sag, col) {
+  c.strokeStyle = col; c.lineWidth = 1.2; c.beginPath();
+  c.moveTo(x0, y0);
+  c.quadraticCurveTo((x0 + x1) / 2, y0 + sag * 2, x1, y0);
+  c.stroke();
+}
 function glowCircle(c, x, y, r, col, a) {
   const g = c.createRadialGradient(x, y, 0, x, y, r);
   g.addColorStop(0, col.replace('A)', (a) + ')'));
@@ -209,6 +215,7 @@ function beast(c, x, y, o) {
   const f = o.facing || 1, len = o.len, ht = o.ht, legH = o.legH;
   const col = o.col || '#050807';
   const lower = o.lower || 0;
+  ell(c, x, y + 1.6, len * 0.42, 2, 'rgba(0,0,0,0.3)');   // grounding shadow
   c.save(); c.translate(x, y - lower * legH * 0.55); c.scale(f, 1);
   const by = -legH - ht / 2 + lower * legH * 0.4;    // body center
   // legs (4), swinging pairs
@@ -284,7 +291,15 @@ function resetPlayer(x) {
                           crouch: false, stun: 0, maxX: x });
 }
 
+let coyote = 0, jbuf = 0, prevJumpHeld = false, stepT = 0;
 function updatePlayer(dt, sc) {
+  const wasOn = player.on;
+  // coyote time + jump buffering: the controls forgive, so death never
+  // feels like the keyboard's fault
+  coyote = player.on ? 0.09 : coyote - dt;
+  const pressed = jumpK() && !prevJumpHeld;
+  prevJumpHeld = jumpK();
+  jbuf = pressed ? 0.12 : jbuf - dt;
   if (player.stun > 0) { player.stun -= dt; player.vx = 0; }
   else {
     const spd = (run() ? RUN : WALK) * (sc.speedMul || 1);
@@ -297,8 +312,10 @@ function updatePlayer(dt, sc) {
       player.vx += (tgt - player.vx) * Math.min(1, dt * 2.0);
     } else player.vx = dir * s;
     if (dir) player.facing = dir;
-    if (jumpK() && player.on && !player.crouch) {
-      player.vy = JUMPV; player.on = false; sfx.jump();
+    if (jbuf > 0 && coyote > 0 && !player.crouch) {
+      player.vy = JUMPV; player.on = false; coyote = 0; jbuf = 0;
+      sfx.jump();
+      fx.push({ x: player.x, y: player.y, t: 0, kind: 'dust' });
     }
   }
   player.x += player.vx * dt;
@@ -310,17 +327,45 @@ function updatePlayer(dt, sc) {
   } else if (sc.inGap && sc.inGap(player.x)) {
     player.on = false; player.vy = 20;
   }
+  if (!wasOn && player.on) {          // landing: heard and seen
+    sfx.land();
+    fx.push({ x: player.x - 3, y: player.y, t: 0, kind: 'dust' });
+    fx.push({ x: player.x + 3, y: player.y, t: 0, kind: 'dust' });
+  }
+  if (player.on && Math.abs(player.vx) > WALK + 5) {   // running kicks dust
+    stepT += dt;
+    if (stepT > 0.22) {
+      stepT = 0;
+      fx.push({ x: player.x - player.facing * 3, y: player.y, t: 0, kind: 'dust' });
+    }
+  }
   player.x = Math.max(6, Math.min(sc.w - 6, player.x));
   player.maxX = Math.max(player.maxX, player.x);
   if (Math.abs(player.vx) > 1) player.phase += dt * (Math.abs(player.vx) > WALK + 5 ? 13 : 8);
 }
 
 function drawPlayer(c) {
-  figure(c, player.x, player.y, player.h, '#2A2F38', {
+  // grounding shadow, shrinking with height — you always know where
+  // you'll land
+  const dy = Math.max(0, GROUND - player.y);
+  if (player.y <= GROUND + 1) {
+    const ss = Math.max(0.35, 1 - dy / 90);
+    ell(c, player.x, GROUND + 1.6, 6.5 * ss, 1.7 * ss, 'rgba(0,0,0,0.35)');
+  }
+  // squash & stretch
+  const sy = player.on ? 1 : (player.vy < 0 ? 1.08 : 0.94);
+  c.save(); c.translate(player.x, player.y); c.scale(1 / sy, sy);
+  figure(c, 0, 0, player.h, '#2A2F38', {
     facing: player.facing, legPhase: player.phase,
     crouch: player.crouch, jump: !player.on,
     moving: Math.abs(player.vx) > 1, hair: '#14120F',
   });
+  c.restore();
+  // a breath of rim light so he reads on every background
+  c.globalAlpha = 0.3;
+  box(c, player.x + player.facing * 2.6, player.y - (player.crouch ? 15 : 21),
+      0.8, player.crouch ? 8 : 12, '#C7DCE2');
+  c.globalAlpha = 1;
 }
 
 // ----------------------------------------------------------------- audio --
@@ -408,6 +453,10 @@ const sfx = {
   rumble: () => tone(64, 24, 1.6, 'triangle', 0.26),
   punch:  () => { tone(1500, 1100, 0.03, 'square', 0.09);
                   tone(1500, 1100, 0.03, 'square', 0.09, 0.11); },
+  land:   () => tone(150, 88, 0.07, 'triangle', 0.05),
+  bump:   () => tone(120, 78, 0.06, 'square', 0.06),
+  win:    () => { tone(392, 392, 0.12, 'sine', 0.06);
+                  tone(587, 587, 0.18, 'sine', 0.06, 0.12); },
 };
 
 // ------------------------------------------------------------- narration --
@@ -483,6 +532,7 @@ function updateGun(dt) {
     }
   } else {
     shots.push({ x: player.x + dir * 7, y: gy, vx: dir * 330, super: false });
+    fx.push({ x: player.x + dir * 9, y: gy, t: 0, kind: 'muzzle' });
     sfx.shot();
   }
 }
@@ -608,6 +658,14 @@ function drawCombat(c) {
       ell(c, f.x, f.y - p * 8, 4 + p * 7, 4 + p * 7, '#1A2430');
       c.globalAlpha = (1 - p) * 0.6;
       ell(c, f.x, f.y - p * 8, 2 + p * 3, 2 + p * 3, '#9FE8D8');
+    } else if (f.kind === 'dust') {
+      c.globalAlpha = Math.max(0, 1 - p * 1.8) * 0.5;
+      ell(c, f.x, f.y - 1 - p * 5, 2 + p * 3.5, 1.2 + p * 1.6, '#7A7468');
+    } else if (f.kind === 'muzzle') {
+      if (f.t < 0.1) {
+        c.globalAlpha = 1 - f.t / 0.1;
+        ell(c, f.x, f.y, 3.4, 2.2, '#D8FFF2');
+      }
     } else ell(c, f.x, f.y, 2 + p * 4, 2 + p * 4, '#F2CE7A');
     c.globalAlpha = 1;
   }
@@ -622,7 +680,48 @@ function drawCombat(c) {
   }
 }
 
+// a horned demon: aim → three bolts → a glowing opening. Shared by the
+// Vestibule and the Malebranche of Fraud.
+function updateDemon(d, dt) {
+  if (d.dead) return;
+  d.t += dt;
+  if (d.state === 'aim' && d.t > 0.7) { d.state = 'fire'; d.t = 0; d.n = 0; }
+  else if (d.state === 'fire') {
+    if (d.t > d.n * 0.32) {
+      eBolts.push({ x: d.x - 9, y: GROUND - 13, vx: -175 });
+      sfx.ebolt();
+      d.n++;
+      if (d.n >= 3) { d.state = 'pause'; d.t = 0; }
+    }
+  } else if (d.state === 'pause' && d.t > 1.6) { d.state = 'aim'; d.t = 0; }
+  if (Math.abs(player.x - d.x) < 12) kill('demon');
+}
+function drawDemon(c, d) {
+  if (d.dead) return;
+  const dx = d.x, lean = d.state === 'aim' ? -1.5 : 0;
+  ell(c, dx, GROUND + 1.6, 9, 2, 'rgba(0,0,0,0.3)');
+  poly(c, [[dx - 8, GROUND], [dx - 5 + lean, GROUND - 26],
+           [dx + lean, GROUND - 33], [dx + 5 + lean, GROUND - 27],
+           [dx + 9, GROUND], [dx + 12, GROUND + 1], [dx - 10, GROUND + 1]],
+       '#07090D');
+  ell(c, dx + lean, GROUND - 30, 4.4, 5, '#07090D');
+  poly(c, [[dx - 4 + lean, GROUND - 33], [dx - 7 + lean, GROUND - 40],
+           [dx - 1 + lean, GROUND - 35]], '#07090D');
+  poly(c, [[dx + 4 + lean, GROUND - 33], [dx + 7 + lean, GROUND - 40],
+           [dx + 1 + lean, GROUND - 35]], '#07090D');
+  const hot = d.state === 'aim' ? 0.9 : 0.5;
+  c.fillStyle = '#E86A2B';
+  c.fillRect(dx - 2.6 + lean, GROUND - 31, 1.6, 1.4);
+  c.fillRect(dx + 1 + lean, GROUND - 31, 1.6, 1.4);
+  glowCircle(c, dx + lean, GROUND - 30, 6, 'rgba(232,106,43,A)', hot * 0.4);
+  if (d.state === 'pause') {                    // the opening — hit it NOW
+    glowCircle(c, dx, GROUND - 20, 8,
+               'rgba(232,106,43,A)', 0.5 + 0.3 * Math.sin(T * 10));
+  }
+}
+
 function drawVirgil(c, x, y, o = {}) {
+  ell(c, x, y + 1.6, 5.5, 1.5, 'rgba(0,0,0,0.3)');
   figure(c, x, y, 27, VIRGIL_GRAY, {
     cap: '#33383F', facing: o.facing || 1, legPhase: o.phase || 0,
     moving: o.moving, hair: '#3A3F45',
@@ -655,29 +754,74 @@ function makePark() {
     x: 30 + i * 34, y: 90 + (i * 37) % 40, p: i * 1.7 }));
   return {
     w, name: 'park', entry: 14, slide: false,
-    reset() { resetPlayer(this.entry); },
+    reset() { resetPlayer(this.entry); this.bumpS = false; this.bumpB = false; },
     update(dt) {
       say('p1', "I was only walking home. But the park felt wrong that night.");
+      // teach, then test: a knee-high stile — only a jump clears it.
+      // Bumping it is loud and harmless; the pit later is neither.
+      if (player.on) {
+        if (player.x > 150 && player.x < 172 && player.maxX < 172) {
+          player.x = 150;
+          if (!this.bumpS) { this.bumpS = true; sfx.bump();
+            fx.push({ x: 152, y: GROUND, t: 0, kind: 'dust' }); }
+        }
+        if (player.x <= 146) this.bumpS = false;
+        // and a low branch — only a crouch passes. The leopard will ask
+        // for the same answer, with teeth.
+        if (!player.crouch && player.x > 258 && player.x < 278 &&
+            player.maxX < 278) {
+          player.x = 258;
+          if (!this.bumpB) { this.bumpB = true; sfx.bump();
+            fx.push({ x: 260, y: GROUND - 14, t: 0, kind: 'dust' }); }
+        }
+        if (player.x <= 254) this.bumpB = false;
+      }
       if (player.x >= w - 7) nextScene();
     },
     draw(c) {
-      vgrad(c, 0, 0, w, 118, '#070C08', '#131D12');
+      vgrad(c, 0, 0, w, 118, '#0A1210', '#17231A');
+      // stars, held still, each keeping its own time
+      for (let i = 0; i < 26; i++) {
+        const sx = (i * 61 + 9) % w, sy = (i * 37) % 74;
+        c.globalAlpha = 0.25 + 0.55 * Math.abs(Math.sin(T * 0.9 + i * 2.1));
+        box(c, sx, sy, i % 6 ? 0.9 : 1.3, i % 6 ? 0.9 : 1.3, '#D8E8EC');
+        c.globalAlpha = 1;
+      }
       // city glow, left horizon — the world he is leaving
-      glowCircle(c, 20, 116, 60, AMBER, 0.10);
-      // skyline
-      for (let i = 0; i < 7; i++)
-        box(c, i * 13 - 4, 96 + (i * 29 % 17), 9, 22, '#0A120C');
-      // crescent
-      c.strokeStyle = '#D8E8EC'; c.lineWidth = 1; c.beginPath();
+      glowCircle(c, 20, 116, 60, AMBER, 0.14);
+      // skyline with a few windows still awake
+      for (let i = 0; i < 7; i++) {
+        const bx = i * 13 - 4, by = 96 + (i * 29 % 17);
+        box(c, bx, by, 9, 22, '#0A120C');
+        if (i % 2) { box(c, bx + 2, by + 4, 1.4, 1.8, '#E8A33D');
+                     box(c, bx + 5.4, by + 9, 1.4, 1.8, '#B37A2E'); }
+      }
+      // the moon, haloed
+      glowCircle(c, 252, 28, 22, 'rgba(216,232,236,A)', 0.16);
+      c.strokeStyle = '#D8E8EC'; c.lineWidth = 1.4; c.beginPath();
       c.arc(252, 28, 7, -0.6, 2.2); c.stroke();
-      vgrad(c, 0, 118, w, 62, '#10180E', '#0B110A');
-      box(c, 0, GROUND, w, 30, '#0D130B');
+      vgrad(c, 0, 118, w, 62, '#141E12', '#0E140C');
+      box(c, 0, GROUND, w, 30, '#101710');
       // back fence
       for (let x = 8; x < w; x += 22) box(c, x, 122, 1.6, 28, '#0A0F0A');
       box(c, 0, 126, w, 1.4, '#0A0F0A'); box(c, 0, 140, w, 1.4, '#0A0F0A');
-      treeSil(c, 52, GROUND, 60, '#0A120A');
-      treeSil(c, 150, GROUND, 46, '#0A120A');
-      treeSil(c, 288, GROUND, 70, '#081008');
+      treeSil(c, 52, GROUND, 60, '#0B140B');
+      treeSil(c, 288, GROUND, 70, '#0A120A');
+      // a bench nobody sits on
+      box(c, 188, GROUND - 9, 26, 2.2, '#141B12');
+      box(c, 189, GROUND - 13, 24, 2, '#141B12');
+      box(c, 190, GROUND - 7, 2, 7, '#0E140C');
+      box(c, 210, GROUND - 7, 2, 7, '#0E140C');
+      // the stile: two posts and a rail, lit enough to invite the jump
+      box(c, 158, GROUND - 11, 2.4, 11, '#1C2618');
+      box(c, 168, GROUND - 11, 2.4, 11, '#1C2618');
+      box(c, 156, GROUND - 11, 17, 2.4, '#26331F');
+      // the low branch off the great tree, leaves hanging
+      c.save(); c.translate(288, GROUND - 46); c.rotate(0.24);
+      box(c, -46, 0, 46, 3, '#0A120A'); c.restore();
+      box(c, 254, GROUND - 21, 28, 2.6, '#0D160C');
+      for (let lx = 256; lx < 280; lx += 6)
+        ell(c, lx, GROUND - 16.5, 3.4, 4.2, '#0C150B');
       lamp(c, 104, GROUND);
       lamp(c, 226, GROUND);
       // fireflies
@@ -991,7 +1135,109 @@ function makeHall() {
   };
 }
 
-// P6 — The Vestibule: the futile, a demon of the door, a gate for the blast
+// P6 — THE GATE OF HELL: the inscription, and stones that warn before
+// they fall. The first stone falls harmlessly ahead — teach, then test.
+function makeGate() {
+  const w = 480;
+  const drops = [{ x: 200, cyc: 3.2, off: 1.6 }, { x: 272, cyc: 3.6, off: 0.4 },
+                 { x: 330, cyc: 3.0, off: 1.9 }];
+  return {
+    w, name: 'gate', entry: 12, title: 'THE GATE',
+    reset() { resetPlayer(this.entry); clearCombat(); this.t = 0; },
+    ph(d) { return (this.t + d.off) % d.cyc; },
+    update(dt) {
+      say('pgate', "We came to a gate as tall as the dark itself, and words burned above it: abandon all hope, you who enter here. The stones of it were still falling. Their shadows warned us where.");
+      this.t += dt;
+      for (const d of drops) {
+        const p = this.ph(d);
+        // lethal only near the floor — matching exactly what the eye sees
+        if (p > d.cyc - 0.35 && (p - (d.cyc - 0.35)) / 0.35 > 0.55 &&
+            Math.abs(player.x - d.x) < 8 && player.y > GROUND - 26)
+          kill('stone');
+      }
+      if (player.x >= w - 14) nextScene();
+    },
+    draw(c) {
+      vgrad(c, 0, 0, w, 150, '#060510', '#191524');
+      // the wall, colossal — its top beyond the sky
+      box(c, 0, 0, w, 64, '#070609');
+      vgrad(c, 0, 64, w, 26, '#070609', 'rgba(7,6,9,0)');
+      // masonry: courses and staggered blocks
+      for (let y = 6; y < 62; y += 14) {
+        box(c, 0, y, w, 1, '#100D18');
+        for (let x = (y % 28 ? 0 : 30); x < w; x += 60)
+          box(c, x, y, 1, 14, '#100D18');
+      }
+      // buttresses marching to the door
+      for (const bx of [40, 130, 226, 310]) {
+        vgrad(c, bx, 0, 14, GROUND, '#0B0912', '#141020');
+        box(c, bx - 2, 58, 18, 5, '#0B0912');
+        box(c, bx + 2, 64, 10, GROUND - 64, '#0E0B16');
+      }
+      // chains that once held something
+      cable(c, 88, 150, 66, 12, '#0B0912');
+      cable(c, 238, 296, 60, 15, '#0B0912');
+      // the door's rose light stains the flagstones all the way out
+      glowCircle(c, 300, GROUND + 4, 90, ROSE, 0.06);
+      // the doorway into the dark
+      const dx0 = 356, dw = 86;
+      c.beginPath(); c.arc(dx0 + dw / 2, 128, dw / 2, Math.PI, 0);
+      c.lineTo(dx0 + dw, GROUND); c.lineTo(dx0, GROUND); c.closePath();
+      c.fillStyle = '#030207'; c.fill();
+      glowCircle(c, dx0 + dw / 2, 132, 44, ROSE, 0.14);
+      // embers rising out of it
+      for (let i = 0; i < 14; i++) {
+        const ep = (T * 26 + i * 31) % 90;
+        c.globalAlpha = 0.55 * (1 - ep / 90);
+        box(c, dx0 + 10 + (i * 17) % 66, GROUND - ep, 1, 1.4, '#C4788A');
+        c.globalAlpha = 1;
+      }
+      // the inscription — it flares legible, then dims to a scar
+      const flare = Math.max(0, Math.sin(T * 0.5) - 0.82) / 0.18;
+      c.globalAlpha = 0.18 + 0.82 * flare;
+      c.fillStyle = flare > 0.4 ? '#E8A33D' : '#4A3A2A';
+      c.font = '600 8px Georgia, serif'; c.textAlign = 'center';
+      c.fillText('A B A N D O N   A L L   H O P E', dx0 + dw / 2, 74);
+      c.fillText('Y O U   W H O   E N T E R   H E R E', dx0 + dw / 2, 86);
+      c.globalAlpha = 1;
+      box(c, 0, GROUND, w, 30, '#131118');
+      // rubble of stones already fallen
+      for (const [bx, bw2] of [[64, 10], [130, 8], [246, 12], [304, 9]])
+        poly(c, [[bx, GROUND], [bx + bw2, GROUND], [bx + bw2 - 2, GROUND - 6],
+                 [bx + 2, GROUND - 5]], '#201C2A');
+      // the falling stones: growing shadow, trembling block, then the drop
+      for (const d of drops) {
+        const p = this.ph(d);
+        const warn = p > d.cyc - 1.05 && p <= d.cyc - 0.35;
+        const fall = p > d.cyc - 0.35;
+        if (warn) {
+          const a = (p - (d.cyc - 1.05)) / 0.7;
+          c.globalAlpha = 0.25 + 0.5 * a;
+          ell(c, d.x, GROUND + 1, 2 + 7 * a, 1.6, '#000');
+          c.globalAlpha = 0.4 + 0.4 * Math.sin(T * 22);
+          box(c, d.x - 2 + Math.sin(T * 40) * 0.7, 62, 4, 4, '#8A8578');
+          c.globalAlpha = 1;
+        }
+        if (fall) {
+          const fp = (p - (d.cyc - 0.35)) / 0.35;
+          const fy = 64 + fp * fp * (GROUND - 72);
+          c.globalAlpha = 0.3;                     // motion streak
+          box(c, d.x - 2.4, fy - 14, 4.8, 14, '#3A3450');
+          c.globalAlpha = 1;
+          box(c, d.x - 4, fy, 8, 8, '#3A3450');
+          box(c, d.x - 4, fy, 8, 2, '#4A4462');
+          if (fp > 0.94)
+            for (let k = 0; k < 3; k++)
+              box(c, d.x - 6 + k * 5, GROUND - 2, 2, 2, '#3A3450');
+        }
+      }
+      // Virgil at the threshold, lamp up, waiting
+      drawVirgil(c, dx0 - 14, GROUND, { facing: 1, lampA: 0.2 });
+    },
+  };
+}
+
+// P7 — The Vestibule: the futile, a demon of the door, a gate for the blast
 function makeVestibule() {
   const w = 640;
   const demon = { x: 412, hp: 3, state: 'idle', t: 0, n: 0, dead: false };
@@ -1012,25 +1258,11 @@ function makeVestibule() {
       }
       updateShades(this, dt);
       if (!demon.dead) {
-        demon.t += dt;
-        if (demon.state === 'idle') {
-          if (player.x > demon.x - 150) {
-            demon.state = 'aim'; demon.t = 0;
-            say('demon', "A demon held the way. Virgil warned me: its kind must pause for breath after every volley. Shield its fire — strike its opening.");
-          }
-        } else if (demon.state === 'aim' && demon.t > 0.7) {
-          demon.state = 'fire'; demon.t = 0; demon.n = 0;
-        } else if (demon.state === 'fire') {
-          if (demon.t > demon.n * 0.32) {
-            eBolts.push({ x: demon.x - 9, y: GROUND - 13, vx: -175 });
-            sfx.ebolt();
-            demon.n++;
-            if (demon.n >= 3) { demon.state = 'pause'; demon.t = 0; }
-          }
-        } else if (demon.state === 'pause' && demon.t > 1.6) {
+        if (demon.state === 'idle' && player.x > demon.x - 150) {
           demon.state = 'aim'; demon.t = 0;
+          say('demon', "A demon held the way. Virgil warned me: its kind must pause for breath after every volley. Shield its fire — strike its opening.");
         }
-        if (Math.abs(player.x - demon.x) < 12) kill('demon');
+        if (demon.state !== 'idle') updateDemon(demon, dt);
       } else {
         say('gate', "Beyond it, a gate rusted shut. Hold the trigger until the charge sings, and let go.");
       }
@@ -1062,27 +1294,7 @@ function makeVestibule() {
       c.rotate(Math.sin(T * 2) * 0.3);
       box(c, -6, -3, 12, 6, '#2E3542'); c.restore();
       // the demon of the door
-      if (!demon.dead) {
-        const dx = demon.x, lean = demon.state === 'aim' ? -1.5 : 0;
-        poly(c, [[dx - 8, GROUND], [dx - 5 + lean, GROUND - 26],
-                 [dx + lean, GROUND - 33], [dx + 5 + lean, GROUND - 27],
-                 [dx + 9, GROUND], [dx + 12, GROUND + 1], [dx - 10, GROUND + 1]],
-             '#07090D');
-        ell(c, dx + lean, GROUND - 30, 4.4, 5, '#07090D');
-        poly(c, [[dx - 4 + lean, GROUND - 33], [dx - 7 + lean, GROUND - 40],
-                 [dx - 1 + lean, GROUND - 35]], '#07090D');
-        poly(c, [[dx + 4 + lean, GROUND - 33], [dx + 7 + lean, GROUND - 40],
-                 [dx + 1 + lean, GROUND - 35]], '#07090D');
-        const hot = demon.state === 'aim' ? 0.9 : 0.5;
-        c.fillStyle = '#E86A2B';
-        c.fillRect(dx - 2.6 + lean, GROUND - 31, 1.6, 1.4);
-        c.fillRect(dx + 1 + lean, GROUND - 31, 1.6, 1.4);
-        glowCircle(c, dx + lean, GROUND - 30, 6, 'rgba(232,106,43,A)', hot * 0.4);
-        if (demon.state === 'pause') {              // the opening
-          glowCircle(c, dx, GROUND - 20, 8,
-                     'rgba(232,106,43,A)', 0.5 + 0.3 * Math.sin(T * 10));
-        }
-      }
+      drawDemon(c, demon);
       // the rusted gate
       const g = this.gate;
       box(c, g.x - 3, 84, 26, 6, '#1A1712');
@@ -1183,6 +1395,14 @@ function makeAcheron() {
         const rx = (i * 53 + Math.sin(T * 0.8 + i) * 8) % w;
         box(c, rx, GROUND + 7 + (i * 17) % 18, 8 + (i % 3) * 4, 0.8, '#123034');
       }
+      // slow bubbles from what lies under the water
+      for (let i = 0; i < 8; i++) {
+        const bp = (T * 0.4 + i * 0.71) % 1;
+        c.globalAlpha = 0.4 * (1 - bp);
+        ell(c, (i * 73 + 30) % w, GROUND + 22 - bp * 14, 1 + bp, 1 + bp,
+            '#1B4A44');
+        c.globalAlpha = 1;
+      }
       // the pier
       box(c, 0, GROUND, 214, 8, '#0C1013');
       for (let x = 10; x < 210; x += 24) box(c, x, GROUND + 8, 3, 22, '#090D10');
@@ -1262,22 +1482,28 @@ function makeAcheron() {
 // Circle 1 — LIMBO: the terminus; crowds surge when a ghost train arrives;
 // Minos judges at the exit, his tail the barrier
 function makeLimbo() {
-  const w = 640;
+  const w = 760;
   const clusters = [{ x: 150, w: 44 }, { x: 300, w: 50 }, { x: 452, w: 44 }];
+  const PIVOT = 702;
   return {
     w, name: 'limbo', entry: 12, title: 'LIMBO',
     reset() { resetPlayer(this.entry); clearCombat(); this.t = 0; },
     update(dt) {
       say('c1', "Limbo — the first circle. These souls did no wrong; they only lived without the light. When a train pretends to arrive, the crowd surges. Slip through behind them.");
+      if (player.x > 540)
+        say('c1b', "Past the crowds, the great pagans rest in a lounge of green glass — Homer, Plato, the poets. Virgil is welcomed there as an equal. And at the very end waits Minos, the judge. His tail is the barrier. Cross while it is raised.");
       this.t += dt;
       this.surge = (this.t % 7) > 4.6;
       if (!this.surge) for (const cl of clusters) {
         if (player.x > cl.x - 8 && player.x < cl.x + cl.w + 8)
           player.x = player.x < cl.x + cl.w / 2 ? cl.x - 8 : cl.x + cl.w + 8;
       }
-      // Minos: his tail sweeps the exit
-      this.tailDown = (this.t % 3.4) < 2.05;
-      if (this.tailDown && player.x > 584 && player.x < 606) kill('minos');
+      // Minos: his tail sweeps the exit, and warns before it falls
+      const ph = this.t % 3.4;
+      this.tailDown = ph < 2.05;
+      this.tailWarn = ph > 2.95;                     // blink before the slam
+      if (this.tailDown && player.x > PIVOT - 8 && player.x < PIVOT + 10)
+        kill('minos');
       if (player.x >= w - 8) nextScene();
     },
     draw(c) {
@@ -1296,8 +1522,26 @@ function makeLimbo() {
                  20 + ((i + ci) % 3) * 2, coats[(i + ci) % coats.length],
                  { face: false });
       });
+      // the First-Class Lounge — green glass, gold light, the great pagans
+      box(c, 540, 78, 128, GROUND - 78, '#12332B');
+      vgrad(c, 544, 82, 120, GROUND - 84, 'rgba(88,140,96,0.35)',
+            'rgba(30,60,42,0.15)');
+      for (let gx = 556; gx < 660; gx += 26)
+        box(c, gx, 82, 1.6, GROUND - 84, '#0C241E');
+      glowCircle(c, 604, 116, 44, 'rgba(201,178,107,A)', 0.16);
+      box(c, 552, GROUND - 10, 30, 2.4, '#0C241E');        // benches
+      box(c, 622, GROUND - 10, 30, 2.4, '#0C241E');
+      const pagans = [[566, 22, '#3A4A38'], [590, 24, '#4A4432'],
+                      [636, 23, '#3E3A4A']];
+      pagans.forEach(([px, phh, pc], i) => {
+        const nod = i === 1 ? Math.sin(T * 1.1) * 0.8 : 0;
+        figure(c, px, GROUND + nod * 0, phh, pc,
+               { face: false, hair: '#2A2A22' });
+        box(c, px - 2.6, GROUND - phh + nod, 5.2, 1.2, '#7FA05A');  // laurel
+      });
       // MINOS at the exit — the inspector whose tail is the barrier
-      const mx = 614;
+      const mx = PIVOT + 12;
+      ell(c, mx + 1, GROUND + 1.6, 10, 2, 'rgba(0,0,0,0.3)');
       poly(c, [[mx - 9, GROUND], [mx - 5, GROUND - 40], [mx + 6, GROUND - 44],
                [mx + 11, GROUND], [mx + 14, GROUND + 1], [mx - 11, GROUND + 1]],
            '#2B0B06');
@@ -1305,13 +1549,18 @@ function makeLimbo() {
       c.fillStyle = '#E8A33D';
       c.fillRect(mx - 1, GROUND - 42, 1.4, 1.4);
       c.fillRect(mx + 2.4, GROUND - 42, 1.4, 1.4);
-      // the tail: down = a striped barrier arm across the way
+      // the tail-arm: warns with a blink, then slams
+      if (this.tailWarn) {
+        glowCircle(c, PIVOT + 2, 108, 10, AMBER,
+                   0.35 + 0.35 * Math.sin(T * 20));
+      }
       if (this.tailDown) {
-        box(c, 592, 112, 4, GROUND - 112, '#2B0B06');
-        for (let y = 116; y < GROUND; y += 10) box(c, 592, y, 4, 4, '#B33A26');
+        box(c, PIVOT, 112, 4, GROUND - 112, '#2B0B06');
+        for (let y = 116; y < GROUND; y += 10) box(c, PIVOT, y, 4, 4, '#B33A26');
       } else {
-        box(c, 592, 108, 26, 4, '#2B0B06');
-        for (let x = 594; x < 616; x += 9) box(c, x, 108, 4, 4, '#B33A26');
+        box(c, PIVOT, 108, 26, 4, '#2B0B06');
+        for (let x = PIVOT + 2; x < PIVOT + 24; x += 9)
+          box(c, x, 108, 4, 4, '#B33A26');
       }
     },
   };
@@ -1337,9 +1586,11 @@ function makeLustLvl() {
       vgrad(c, 0, 0, w, 180, '#241019', '#6B3A50');
       ell(c, 20, 80, 70, 60, '#140A10');
       ell(c, 540, 100, 70, 60, '#140A10');
-      for (let i = 0; i < 8; i++) {                       // the gale, drawn
+      for (let i = 0; i < 8; i++) {                       // the gale, drawn —
+        // its brightness IS the wind meter
         const y0 = 20 + i * 16, amp = 5 + (i % 3) * 3;
-        c.strokeStyle = 'rgba(215,167,180,0.5)'; c.lineWidth = 0.6;
+        const wA = 0.22 + Math.min(0.5, Math.abs(this.wind || 0) / 55);
+        c.strokeStyle = `rgba(215,167,180,${wA})`; c.lineWidth = 0.6;
         c.beginPath();
         for (let x = 0; x < w; x += 6) {
           const y = y0 + amp * Math.sin(x / 38 + this.t * (1 + i * 0.07));
@@ -1353,10 +1604,12 @@ function makeLustLvl() {
         poly(c, [[sx - 8, sy + 2], [sx + 6, sy - 1], [sx + 10, sy + 1],
                  [sx + 5, sy + 4], [sx - 11, sy + 5]], '#1E1018');
       }
-      // ground with two wind-cut gaps
+      // ground with two wind-cut gaps, their lips picked out in light
       for (const [x0, x1] of [[0, 150], [196, 330], [386, w]]) {
         box(c, x0, GROUND, x1 - x0, 30, '#2B1722');
         box(c, x0, GROUND, x1 - x0, 2, '#8A5A6C');
+        if (x0 > 0) box(c, x0, GROUND, 3, 4, '#C79AA8');
+        if (x1 < w) box(c, x1 - 3, GROUND, 3, 4, '#C79AA8');
       }
       // the couple, sheltered leeward of the duct — always together
       figure(c, 526, GROUND, 18, '#3A2531', { face: false });
@@ -1402,11 +1655,30 @@ function makeGluttony() {
       box(c, 0, GROUND, w, 30, '#2A2114');              // the mire
       for (let x = 0; x < w; x += 26)
         ell(c, x + 13, GROUND + 2, 12, 2.5, '#1C160C');
+      // rain striking the mud — little crowns where it lands
+      for (let i = 0; i < 10; i++) {
+        const sp = (T * 2.1 + i * 0.73) % 1;
+        if (sp < 0.25) {
+          const sx = (i * 113 + 40) % w;
+          c.globalAlpha = 1 - sp * 4;
+          c.strokeStyle = '#3A452A'; c.lineWidth = 0.7;
+          c.beginPath();
+          c.ellipse(sx, GROUND + 1, 2 + sp * 14, 0.8 + sp * 2, 0, 0, 7);
+          c.stroke();
+          c.globalAlpha = 1;
+        }
+      }
       // three tunnel mouths, a head in each
       zones.forEach((z, i) => {
         const cxm = (z.x0 + z.x1) / 2;
         c.beginPath(); c.ellipse(cxm, 118, 52, 46, 0, Math.PI, 0);
         c.fillStyle = '#151A0E'; c.fill();
+        // the watched ground glows faintly amber — the exact deadly span
+        if (this.headAwake(i)) {
+          c.globalAlpha = 0.10 + 0.05 * Math.sin(T * 6 + i);
+          box(c, z.x0, GROUND - 2, z.x1 - z.x0, 5, '#E8A33D');
+          c.globalAlpha = 1;
+        }
         // the head: a muzzle over the pass
         const awake = this.headAwake(i), stir = this.headStirring(i);
         poly(c, [[cxm - 16, 96], [cxm + 16, 96], [cxm + 10, 122],
@@ -1596,6 +1868,14 @@ function makeHeresy() {
     },
     draw(c) {
       vgrad(c, 0, 0, w, 150, '#170805', '#3F1B14');
+      // embers rising off the tombs
+      for (let i = 0; i < 18; i++) {
+        const ep = (T * 20 + i * 43) % 110;
+        c.globalAlpha = 0.55 * (1 - ep / 110);
+        box(c, (i * 61 + 30 + Math.sin(T + i) * 6) % w, 140 - ep, 1, 1.4,
+            '#F2B441');
+        c.globalAlpha = 1;
+      }
       box(c, 0, GROUND, w, 30, '#240D08');
       // tomb-cabinets, glowing from within
       for (let x = 40; x < w; x += 105) {
@@ -1700,10 +1980,11 @@ function makeViolence() {
 
 // Circle 8 — FRAUD: even the floor lies
 function makeFraud() {
-  const w = 560;
+  const w = 640;
   const TILE = 24, T0 = 96, TN = 16;
+  const demon = { x: 560, hp: 3, state: 'idle', t: 0, n: 0, dead: false };
   return {
-    w, name: 'fraud', entry: 10, title: 'FRAUD', shades: [],
+    w, name: 'fraud', entry: 10, title: 'FRAUD', shades: [], demon,
     isFalse(i) { return i % 3 === 1 || i === 7; },
     inGap(x) {
       const i = Math.floor((x - T0) / TILE);
@@ -1713,9 +1994,10 @@ function makeFraud() {
       resetPlayer(this.entry); clearCombat();
       this.holes = new Set(); this.standT = 0; this.lastTile = -1;
       this.shades.length = 0; this.spawned = false;
+      Object.assign(demon, { hp: 3, state: 'idle', t: 0, n: 0, dead: false });
     },
     update(dt) {
-      say('c8', "The eighth circle: Fraud. Believe nothing here. The signs point the wrong way — and even the floor lies.");
+      say('c8', "The eighth circle: Fraud. Believe nothing here. The signs point the wrong way — and even the floor lies. Cross it at a run, or it will open under your feet.");
       const i = Math.floor((player.x - T0) / TILE);
       if (player.on && i >= 0 && i < TN && this.isFalse(i) && !this.holes.has(i)) {
         if (i === this.lastTile) this.standT += dt;
@@ -1730,6 +2012,14 @@ function makeFraud() {
         this.shades.push({ x: 470, state: 'lurk' }, { x: 520, state: 'lurk' });
       }
       updateShades(this, dt);
+      // the Malebranche — the demon crew who escort, then betray
+      if (!demon.dead) {
+        if (demon.state === 'idle' && player.x > demon.x - 140) {
+          demon.state = 'aim'; demon.t = 0;
+          say('malebranche', "One of the Malebranche waited past the floors — the demons who offer escort, and mean ambush. I knew its rhythm by now.");
+        }
+        if (demon.state !== 'idle') updateDemon(demon, dt);
+      }
       if (player.y > GROUND + 22) kill('fall');
       if (player.x >= w - 8) nextScene();
     },
@@ -1756,8 +2046,19 @@ function makeFraud() {
         if (this.holes.has(i)) { box(c, T0 + i * TILE, GROUND, TILE, 30, '#0C0B08'); continue; }
         box(c, T0 + i * TILE, GROUND, TILE, 30, '#4A4436');
         box(c, T0 + i * TILE, GROUND, TILE - 1, 2, '#6B6552');
+        // the liars carry hairline cracks — visible to whoever looks twice
+        if (this.isFalse(i)) {
+          const tx = T0 + i * TILE;
+          c.strokeStyle = '#35311F'; c.lineWidth = 0.7;
+          c.beginPath();
+          c.moveTo(tx + 5, GROUND + 2); c.lineTo(tx + 11, GROUND + 5);
+          c.lineTo(tx + 9, GROUND + 9);
+          c.moveTo(tx + 15, GROUND + 3); c.lineTo(tx + 19, GROUND + 7);
+          c.stroke();
+        }
       }
       this.shades.forEach((sh, i) => drawShade(c, sh, i));
+      drawDemon(c, demon);
     },
   };
 }
@@ -1765,63 +2066,86 @@ function makeFraud() {
 // Circle 9 — TREACHERY: ice underfoot, wind that must be crawled,
 // and Lucifer at the center — where down becomes up
 function makeTreachery() {
-  const w = 560;
+  const w = 700;
+  const SECTORS = [[150, 230], [300, 380], [450, 530]];
   return {
     w, name: 'treachery', entry: 10, title: 'TREACHERY', ice: true,
     reset() { resetPlayer(this.entry); clearCombat(); this.flip = 0; },
+    inWind(x) { return SECTORS.some(([a, b]) => x > a && x < b); },
     update(dt) {
       say('c9', "The ninth circle: Treachery. Ice to the horizon — and frozen at its center, the traitor of traitors. Lucifer himself. The wind from his wings will throw you; crawl through it.");
-      // wind sectors off the wings
-      for (const [x0, x1] of [[170, 250], [320, 400]]) {
+      for (const [x0, x1] of SECTORS) {
         if (player.x > x0 && player.x < x1)
           player.x -= (player.crouch && player.on ? 10 : 52) * dt;
       }
-      if (player.x > 480 && !this.flip) {
+      if (player.x > 620 && !this.flip) {
         say('climb', "There was no way around him — only down his side. And at the very center of the world, down became up.");
         player.stun = 4;
       }
-      if (player.x > 480) {
+      if (player.x > 620) {
         this.flip = Math.min(1, this.flip + dt / 2.4);
         if (this.flip >= 1) { mode = 'end'; modeT = 0; }
       }
       if (player.x >= w - 8) player.x = w - 8;
     },
     draw(c) {
-      vgrad(c, 0, 0, w, 148, '#1D2930', '#5F7C87');
-      for (let i = 0; i < 30; i++) {                     // wind shear
-        const rx = (i * 67 + T * 160) % w;
-        box(c, rx, 30 + (i * 37) % 110, 8 + i % 8, 0.8, 'rgba(199,220,226,0.5)');
+      vgrad(c, 0, 0, w, 148, '#22313A', '#6B8894');
+      // snow, always falling, leaning with the wind
+      for (let i = 0; i < 46; i++) {
+        const sy = (i * 41 + T * (26 + (i % 5) * 8)) % 176;
+        const sx = (i * 89 + Math.sin(T * 0.8 + i) * 14 - T * 30) % w;
+        c.globalAlpha = 0.35 + (i % 3) * 0.18;
+        box(c, (sx + w) % w, sy, 1 + (i % 3) * 0.4, 1 + (i % 3) * 0.4,
+            '#E4F0F3');
+        c.globalAlpha = 1;
       }
-      vgrad(c, 0, 148, w, 32, '#8FAAB4', '#B4CFD8');     // the ice
+      // wind shear, dense inside the deadly sectors — the danger is legible
+      for (let i = 0; i < 30; i++) {
+        const rx = (i * 67 + T * 160) % w;
+        const inSec = this.inWind(rx);
+        c.globalAlpha = inSec ? 0.75 : 0.28;
+        box(c, rx, 30 + (i * 37) % 110, (inSec ? 14 : 7) + i % 6, 0.9,
+            '#C7DCE2');
+        c.globalAlpha = 1;
+      }
+      vgrad(c, 0, 148, w, 32, '#9AB4BE', '#C4DAE2');     // the ice
       for (let x = 20; x < w; x += 70)
         box(c, x, 154 + (x % 3) * 4, 16, 1, '#6E8B96');
-      // the sealed damned, silhouettes under the surface
-      for (const [sx, sy] of [[60, 162], [150, 170], [290, 165], [420, 168]])
+      // the sealed damned, silhouettes under the surface — one pair close
+      for (const [sx, sy] of [[60, 162], [150, 170], [250, 166], [340, 163],
+                              [430, 169], [500, 164]])
         rbox(c, sx, sy, 13, 3, 1, '#54707B');
-      // LUCIFER, filling the right of the world
-      poly(c, [[470, 10], [560, 4], [560, 150], [452, 150]], '#0A0D10');
-      poly(c, [[470, 30], [400, 6], [402, 40], [456, 46]], '#131A20'); // wing
-      for (const [ex, ey, ec] of [[492, 46, '#B33A26'], [478, 56, '#8A8F96'],
-                                   [508, 56, '#C9B26B']]) {
+      rbox(c, 560, 167, 11, 3, 1, '#3C525C');
+      rbox(c, 570, 165, 11, 3, 1, '#3C525C');
+      // LUCIFER, filling the end of the world — both wings spread
+      poly(c, [[610, 10], [700, 4], [700, 150], [592, 150]], '#0A0D10');
+      poly(c, [[610, 30], [540, 6], [542, 40], [596, 46]], '#131A20');
+      poly(c, [[622, 22], [576, 0], [580, 24], [618, 34]], '#0E141A');
+      for (const [ex, ey, ec] of [[632, 46, '#B33A26'], [618, 56, '#8A8F96'],
+                                   [648, 56, '#C9B26B']]) {
         box(c, ex, ey, 2.2, 2.2, ec);
         box(c, ex + 6, ey, 2.2, 2.2, ec);
+        glowCircle(c, ex + 4, ey + 1, 6, 'rgba(179,58,38,A)', 0.25);
       }
       // frost on him
-      for (let i = 0; i < 26; i++)
-        box(c, 460 + (i * 31) % 96, 60 + (i * 47) % 86, 1.4, 1.2,
+      for (let i = 0; i < 30; i++)
+        box(c, 600 + (i * 31) % 96, 56 + (i * 47) % 90, 1.4, 1.2,
             'rgba(199,220,226,0.7)');
     },
   };
 }
 
 const scenes = [makePark(), makeLeopard(), makeChase(), makeWolf(),
-                makeHall(), makeVestibule(), makeAcheron(),
+                makeHall(), makeGate(), makeVestibule(), makeAcheron(),
                 makeLimbo(), makeLustLvl(), makeGluttony(), makeGreed(),
                 makeWrath(), makeHeresy(), makeViolence(), makeFraud(),
                 makeTreachery()];
 
+let camSnap = true;
 function nextScene() {
   sceneIdx++;
+  sfx.win();                          // a small chord for every level cleared
+  camSnap = true;
   if (sceneIdx >= scenes.length) { mode = 'end'; modeT = 0; return; }
   scenes[sceneIdx].reset();
 }
@@ -1934,12 +2258,12 @@ function frame(ts) {
     if (mode === 'title' || mode === 'quote' || mode === 'end')
       ambience('card', 220, 0.015);
     else if (sceneIdx <= 3) ambience('surface', 640, 0.035);   // night wind
-    else if (sceneIdx === 6 || sceneIdx === 11)
+    else if (sceneIdx === 7 || sceneIdx === 12)
       ambience('water', 290, 0.05);                            // the rivers
     else ambience('under', 150, 0.045);                        // deep rumble
     // one root note per depth, falling as you fall
-    const ROOTS = [110, 98, 87.3, 82.4, 73.4, 69.3, 61.7,
-                   65.4, 58.3, 55, 61.7, 49, 46.2, 43.7, 41.2, 36.7];
+    const ROOTS = [110, 98, 87.3, 82.4, 73.4, 69.3, 65.4, 58.3,
+                   61.7, 55, 51.9, 49, 46.2, 43.7, 41.2, 38.9, 36.7];
     music(mode === 'play' || mode === 'dead' || mode === 'drop'
           ? ROOTS[Math.min(sceneIdx, ROOTS.length - 1)] : 82.4);
     bellTick();
@@ -1968,8 +2292,11 @@ function frame(ts) {
   else if (mode === 'quote') drawQuote(ctx);
   else if (mode === 'end') drawEnd(ctx);
   else {
-    camX = Math.max(0, Math.min(sc.w - W, player.x - W / 2));
-    const shk = sc.quake || 0;
+    const camT = Math.max(0, Math.min(sc.w - W, player.x - W / 2));
+    camX = camSnap ? camT : camX + (camT - camX) * Math.min(1, dt * 9);
+    camSnap = false;
+    let shk = sc.quake || 0;
+    if (mode === 'dead' && modeT < 0.16) shk = Math.max(shk, 0.8);
     ctx.save();
     if (sc.flip) {                 // the world turns over at its center
       ctx.translate(W / 2, H / 2);
@@ -1984,14 +2311,18 @@ function frame(ts) {
     ctx.restore();
     // shadow lift — keeps the mood, uncrushes the blacks
     ctx.globalCompositeOperation = 'screen';
-    ctx.fillStyle = 'rgb(44,48,46)';
+    ctx.fillStyle = 'rgb(55,59,56)';
     ctx.fillRect(0, 0, W, H);
     ctx.globalCompositeOperation = 'source-over';
     // vignette
     const vg = ctx.createRadialGradient(W/2, H/2, H*0.45, W/2, H/2, H*0.95);
-    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.24)');
+    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.18)');
     ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
     if (mode === 'dead') {
+      if (modeT < 0.12) {              // the hit lands: one red frame
+        ctx.fillStyle = `rgba(170,36,24,${0.4 * (1 - modeT / 0.12)})`;
+        ctx.fillRect(0, 0, W, H);
+      }
       ctx.fillStyle = `rgba(0,0,0,${Math.min(1, modeT * 3)})`;
       ctx.fillRect(0, 0, W, H);
     }
