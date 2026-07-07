@@ -145,6 +145,12 @@ function vgrad(c, x, y, w, h, c0, c1) {
   g.addColorStop(0, c0); g.addColorStop(1, c1);
   c.fillStyle = g; c.fillRect(x, y, w, h);
 }
+function fxDustHint(c, x, y) {
+  const p = (T * 2.4) % 1;
+  c.globalAlpha = 0.4 * (1 - p);
+  ell(c, x - p * 6, y - 1 - p * 3, 1.6 + p * 2.4, 1 + p, '#7A7468');
+  c.globalAlpha = 1;
+}
 function cable(c, x0, x1, y0, sag, col) {
   c.strokeStyle = col; c.lineWidth = 1.2; c.beginPath();
   c.moveTo(x0, y0);
@@ -291,6 +297,26 @@ function resetPlayer(x) {
                           crouch: false, stun: 0, maxX: x });
 }
 
+// the highest floor at x that is at-or-below the given feet height.
+// GROUND unless a gap eats it; scene platforms (sc.plats) stack above.
+function surfaceY(sc, x, feetY) {
+  let g = (sc.inGap && sc.inGap(x)) ? 1e9 : GROUND;
+  if (sc.plats) for (const p of sc.plats)
+    if (x > p.x0 && x < p.x1 && p.y >= feetY - 2 && p.y < g) g = p.y;
+  return g;
+}
+// every walkable surface shares one language: a bright lit edge
+function groundBand(c, w2, fill, edge) {
+  box(c, 0, GROUND, w2, 30, fill);
+  box(c, 0, GROUND - 0.6, w2, 2.2, edge);
+  c.globalAlpha = 0.3; box(c, 0, GROUND + 2, w2, 1.2, '#000');
+  c.globalAlpha = 1;
+}
+function platBand(c, p, fill, edge) {
+  box(c, p.x0, p.y, p.x1 - p.x0, 5, fill);
+  box(c, p.x0, p.y - 0.6, p.x1 - p.x0, 1.8, edge);
+}
+
 let coyote = 0, jbuf = 0, prevJumpHeld = false, stepT = 0;
 function updatePlayer(dt, sc) {
   const wasOn = player.on;
@@ -320,12 +346,19 @@ function updatePlayer(dt, sc) {
   }
   player.x += player.vx * dt;
   if (!player.on) {
-    player.vy += GRAV * dt; player.y += player.vy * dt;
-    if (player.y >= GROUND && !(sc.inGap && sc.inGap(player.x))) {
-      player.y = GROUND; player.vy = 0; player.on = true;
+    player.vy += GRAV * dt;
+    const prevY = player.y;
+    player.y += player.vy * dt;
+    if (player.vy > 0) {              // one-way floors: land only from above
+      const f = surfaceY(sc, player.x, prevY);
+      if (f < 1e8 && prevY <= f + 0.5 && player.y >= f) {
+        player.y = f; player.vy = 0; player.on = true;
+      }
     }
-  } else if (sc.inGap && sc.inGap(player.x)) {
-    player.on = false; player.vy = 20;
+  } else {
+    const f = surfaceY(sc, player.x, player.y);
+    if (f - player.y > 3) { player.on = false; player.vy = 20; }
+    else player.y = f;
   }
   if (!wasOn && player.on) {          // landing: heard and seen
     sfx.land();
@@ -341,16 +374,18 @@ function updatePlayer(dt, sc) {
   }
   player.x = Math.max(6, Math.min(sc.w - 6, player.x));
   player.maxX = Math.max(player.maxX, player.x);
+  player.shY = player.on ? player.y : surfaceY(sc, player.x, player.y);
   if (Math.abs(player.vx) > 1) player.phase += dt * (Math.abs(player.vx) > WALK + 5 ? 13 : 8);
 }
 
 function drawPlayer(c) {
-  // grounding shadow, shrinking with height — you always know where
-  // you'll land
-  const dy = Math.max(0, GROUND - player.y);
-  if (player.y <= GROUND + 1) {
+  // grounding shadow on whatever surface is below — you always know
+  // where you'll land
+  const shY = player.shY ?? GROUND;
+  const dy = Math.max(0, shY - player.y);
+  if (shY < 1e8 && player.y <= shY + 1) {
     const ss = Math.max(0.35, 1 - dy / 90);
-    ell(c, player.x, GROUND + 1.6, 6.5 * ss, 1.7 * ss, 'rgba(0,0,0,0.35)');
+    ell(c, player.x, shY + 1.6, 6.5 * ss, 1.7 * ss, 'rgba(0,0,0,0.35)');
   }
   // squash & stretch
   const sy = player.on ? 1 : (player.vy < 0 ? 1.08 : 0.94);
@@ -754,12 +789,13 @@ function makePark() {
     x: 30 + i * 34, y: 90 + (i * 37) % 40, p: i * 1.7 }));
   return {
     w, name: 'park', entry: 14, slide: false,
+    plats: [{ x0: 152, x1: 176, y: GROUND - 11 }],   // the stile top
     reset() { resetPlayer(this.entry); this.bumpS = false; this.bumpB = false; },
     update(dt) {
       say('p1', "I was only walking home. But the park felt wrong that night.");
-      // teach, then test: a knee-high stile — only a jump clears it.
+      // teach, then test: a knee-high stile — jump it, or stand on it.
       // Bumping it is loud and harmless; the pit later is neither.
-      if (player.on) {
+      if (player.on && player.y >= GROUND - 1) {
         if (player.x > 150 && player.x < 172 && player.maxX < 172) {
           player.x = 150;
           if (!this.bumpS) { this.bumpS = true; sfx.bump();
@@ -801,7 +837,8 @@ function makePark() {
       c.strokeStyle = '#D8E8EC'; c.lineWidth = 1.4; c.beginPath();
       c.arc(252, 28, 7, -0.6, 2.2); c.stroke();
       vgrad(c, 0, 118, w, 62, '#141E12', '#0E140C');
-      box(c, 0, GROUND, w, 30, '#101710');
+      // the path: warm packed earth, nothing like the night above it
+      groundBand(c, w, '#2B2214', '#A8B060');
       // back fence
       for (let x = 8; x < w; x += 22) box(c, x, 122, 1.6, 28, '#0A0F0A');
       box(c, 0, 126, w, 1.4, '#0A0F0A'); box(c, 0, 140, w, 1.4, '#0A0F0A');
@@ -812,16 +849,20 @@ function makePark() {
       box(c, 189, GROUND - 13, 24, 2, '#141B12');
       box(c, 190, GROUND - 7, 2, 7, '#0E140C');
       box(c, 210, GROUND - 7, 2, 7, '#0E140C');
-      // the stile: two posts and a rail, lit enough to invite the jump
-      box(c, 158, GROUND - 11, 2.4, 11, '#1C2618');
-      box(c, 168, GROUND - 11, 2.4, 11, '#1C2618');
-      box(c, 156, GROUND - 11, 17, 2.4, '#26331F');
-      // the low branch off the great tree, leaves hanging
-      c.save(); c.translate(288, GROUND - 46); c.rotate(0.24);
-      box(c, -46, 0, 46, 3, '#0A120A'); c.restore();
-      box(c, 254, GROUND - 21, 28, 2.6, '#0D160C');
-      for (let lx = 256; lx < 280; lx += 6)
-        ell(c, lx, GROUND - 16.5, 3.4, 4.2, '#0C150B');
+      // the stile: sturdy planks you can stand on, top edge lit like
+      // every other walkable surface
+      box(c, 156, GROUND - 11, 3, 11, '#3A3020');
+      box(c, 169, GROUND - 11, 3, 11, '#3A3020');
+      platBand(c, this.plats[0], '#4A3D26', '#A8B060');
+      // the low branch — pale wood against the dark, moonlight in the gap
+      glowCircle(c, 266, GROUND - 9, 15, 'rgba(216,232,236,A)', 0.12);
+      c.save(); c.translate(288, GROUND - 46); c.rotate(0.4);
+      box(c, -40, 0, 40, 3.4, '#3A3020'); c.restore();
+      box(c, 252, GROUND - 21, 32, 3.2, '#4A3D26');
+      box(c, 252, GROUND - 21.6, 32, 1.2, '#8A7A50');
+      for (let lx = 255; lx < 282; lx += 6)
+        ell(c, lx + Math.sin(T * 2 + lx) * 1.2, GROUND - 16, 3.2, 4,
+            '#26331C');
       lamp(c, 104, GROUND);
       lamp(c, 226, GROUND);
       // fireflies
@@ -900,7 +941,7 @@ function makeLeopard() {
     draw(c) {
       vgrad(c, 0, 0, w, 118, '#060B07', '#121A11');
       vgrad(c, 0, 118, w, 62, '#0F160E', '#0B100A');
-      box(c, 0, GROUND, w, 30, '#0C110B');
+      groundBand(c, w, '#2B2214', '#A8B060');
       // funneling hedges at the flanks
       ell(c, 6, 136, 42, 36, '#060B06');
       ell(c, 62, 146, 30, 18, '#070C07');
@@ -953,10 +994,13 @@ function makeChase() {
       }
       // the pit
       if (player.y > GROUND + 22) kill('fall');
-      // the bough: standing men stumble
+      // the bough: standing men stumble — and hear and see it
       if (!player.crouch && player.on && player.stun <= 0 &&
           player.x > BOUGH - 6 && player.x < BOUGH + 6) {
         player.stun = 0.75; player.x = BOUGH - 7;
+        sfx.bump();
+        fx.push({ x: BOUGH - 5, y: GROUND - 14, t: 0, kind: 'dust' });
+        fx.push({ x: BOUGH - 9, y: GROUND, t: 0, kind: 'dust' });
       }
       if (player.x >= w - 8) nextScene();
     },
@@ -968,9 +1012,9 @@ function makeChase() {
       for (let x = 20; x < w; x += 120)
         ell(c, x, 96, 14, 8, '#070D08');             // stains
       vgrad(c, 0, 118, w, 62, '#0E150D', '#0A0f09');
-      box(c, 0, GROUND, w, 30, '#0C110B');
+      groundBand(c, w, '#2B2214', '#A8B060');
       // collapsed fence + pit
-      box(c, GAP0, GROUND, GAP1 - GAP0, 30, '#010302');
+      box(c, GAP0 - 1, GROUND - 1, GAP1 - GAP0 + 2, 31, '#010302');
       poly(c, [[GAP0 - 12, GROUND], [GAP0, GROUND], [GAP0 - 3, GROUND + 6],
                [GAP0 - 14, GROUND + 4]], '#0A0F0A');
       poly(c, [[GAP1, GROUND], [GAP1 + 10, GROUND], [GAP1 + 14, GROUND + 5],
@@ -979,12 +1023,18 @@ function makeChase() {
         if (x > GAP0 - 30 && x < GAP1 + 10) continue;
         box(c, x, 122, 1.6, 28, '#0A0F0A');
       }
-      // the leaning tree and its low bough
+      // the leaning tree and its low bough — pale wood, lamplit, with
+      // moss that shows exactly how low you must go
+      lamp(c, 200, GROUND); lamp(c, 452, GROUND);
       treeSil(c, BOUGH + 26, GROUND, 84, '#081007');
-      c.save(); c.translate(BOUGH + 18, GROUND - 60); c.rotate(0.42);
-      box(c, -66, 0, 66, 3.4, '#081007'); c.restore();
-      box(c, BOUGH - 12, 133, 30, 2.6, '#0A1108');   // the bough itself
-      lamp(c, 200, GROUND); lamp(c, 430, GROUND);
+      c.save(); c.translate(BOUGH + 18, GROUND - 56); c.rotate(0.5);
+      box(c, -52, 0, 52, 4, '#3A3020'); c.restore();
+      box(c, BOUGH - 14, 132, 32, 3.6, '#4A3D26');   // the bough itself
+      box(c, BOUGH - 14, 131.4, 32, 1.2, '#8A7A50');
+      for (let mx = BOUGH - 11; mx < BOUGH + 16; mx += 7) {
+        const sw2 = Math.sin(T * 2.4 + mx) * 1.4;
+        box(c, mx + sw2, 135.4, 1, 5 + (mx % 3), '#26331C');
+      }
       // the lion
       if (lion.on) {
         beast(c, lion.x, GROUND, {
@@ -1004,19 +1054,34 @@ function makeWolf() {
   const wolf = { x: 276, idle: 0 };
   return {
     w, name: 'wolf', entry: 10, slide: false, wolf,
-    reset() { resetPlayer(this.entry); wolf.x = 276; wolf.idle = 0; },
+    reset() {
+      resetPlayer(this.entry);
+      wolf.x = 276; wolf.idle = 0; wolf.snarl = false;
+      this.creaked = false; this.growled = false;
+    },
     update(dt) {
       say('p4', "Last came a starving she-wolf, matching me step for step. There was no way past her — only the broken grate, and whatever lay below.");
-      // she advances as you do; there is no way past her
+      // she advances as you do — but never past her line beyond the grate,
+      // so the grate itself is always safe ground
       const press = Math.max(0, player.maxX - 46);
-      wolf.x = Math.min(wolf.x, 276 - press * 0.30);
+      wolf.x = Math.min(wolf.x, Math.max(246, 276 - press * 0.22));
       const moving = Math.abs(player.vx) > 1;
       wolf.idle = moving ? 0 : wolf.idle + dt;
-      if (wolf.idle > 5) wolf.x -= 9 * dt;          // patience runs out
-      if (wolf.x - player.x < 20) kill('wolf');
-      // the grate: the only open way is down
-      if (player.on && down() && player.x > GRATE0 + 4 && player.x < GRATE1 - 2
-          && player.maxX > 60) {
+      if (wolf.idle > 5 && wolf.x > 238) wolf.x -= 7 * dt;   // patience, floored
+      const gap = wolf.x - player.x;
+      wolf.snarl = gap < 36;                        // the warning before the bite
+      if (wolf.snarl && !this.growled) {
+        this.growled = true;
+        tone(95, 55, 0.4, 'sawtooth', 0.1);
+      }
+      if (gap > 44) this.growled = false;
+      if (gap < 16) kill('wolf');
+      // the grate: it creaks underfoot, and the way down shows itself
+      const onGrate = player.on && player.x > GRATE0 + 2 && player.x < GRATE1;
+      if (onGrate && !this.creaked) { this.creaked = true; sfx.clunk(); }
+      if (!onGrate) this.creaked = false;
+      this.onGrate = onGrate;
+      if (onGrate && down() && player.maxX > 60) {
         mode = 'drop'; modeT = 0; sfx.rumble();
       }
     },
@@ -1034,23 +1099,36 @@ function makeWolf() {
       }
       box(c, 244, 60, 64, 12, '#080C08');            // dead sign box
       vgrad(c, 0, 118, w, 62, '#0E140D', '#0A0F09');
-      box(c, 0, GROUND, w, 30, '#0C110B');
+      groundBand(c, w, '#2B2214', '#A8B060');
       treeSil(c, 30, GROUND, 62, '#070C07');
       lamp(c, 120, GROUND);
-      // the grate — and the faint warm light from below
-      glowCircle(c, (GRATE0 + GRATE1) / 2, GROUND + 6, 22, ROSE, 0.20);
+      // the grate — and the warm light from below, breathing
+      glowCircle(c, (GRATE0 + GRATE1) / 2, GROUND + 6, 26, ROSE,
+                 0.22 + 0.08 * Math.sin(T * 2));
       box(c, GRATE0, GROUND - 1, GRATE1 - GRATE0, 4, '#020403');
       for (let x = GRATE0 + 3; x < GRATE1 - 2; x += 5)
         box(c, x, GROUND - 1, 1.6, 4, '#101510');
       box(c, GRATE0 + 8, GROUND - 1, 8, 4, '#020403'); // bars broken here
-      // the she-wolf
+      // standing on it, the way down shows itself
+      if (this.onGrate) {
+        const gy = GROUND - 26 + Math.sin(T * 4) * 2;
+        c.globalAlpha = 0.55 + 0.3 * Math.sin(T * 4);
+        poly(c, [[197, gy], [205, gy], [201, gy + 5]], '#EFE3C0');
+        glowCircle(c, 201, gy + 2, 8, 'rgba(239,227,192,A)', 0.3);
+        c.globalAlpha = 1;
+      }
+      // the she-wolf — head drops and eyes flare when you're too close
       beast(c, wolf.x, GROUND, {
         len: 34, ht: 12, legH: 11, facing: -1, col: '#040605',
         phase: T * 6, moving: false, gaunt: true,
+        lower: wolf.snarl ? 0.5 : 0,
       });
-      c.globalAlpha = 0.6 + 0.4 * Math.sin(T * 3.1);
-      glowCircle(c, wolf.x - 19, GROUND - 17, 7, AMBER, 0.4);
+      c.globalAlpha = wolf.snarl ? 1 : 0.6 + 0.4 * Math.sin(T * 3.1);
+      glowCircle(c, wolf.x - 19, GROUND - (wolf.snarl ? 12 : 17),
+                 wolf.snarl ? 10 : 7, AMBER, wolf.snarl ? 0.6 : 0.4);
       c.globalAlpha = 1;
+      if (wolf.snarl)                              // paws scrape the ground
+        fxDustHint(c, wolf.x - 26, GROUND);
     },
   };
 }
@@ -1100,7 +1178,7 @@ function makeHall() {
     draw(c) {
       vgrad(c, 0, 0, w, 120, '#0A0D12', '#161B24');
       vgrad(c, 0, 120, w, 60, '#12161E', '#0C0F15');
-      box(c, 0, GROUND, w, 30, '#0E1118');
+      groundBand(c, w, '#1E2531', '#8FA3BC');
       for (let x = 40; x < w; x += 96) {           // columns
         box(c, x, 24, 9, GROUND - 24, '#0B0F14');
         box(c, x - 2, 24, 13, 5, '#0B0F14');
@@ -1200,7 +1278,7 @@ function makeGate() {
       c.fillText('A B A N D O N   A L L   H O P E', dx0 + dw / 2, 74);
       c.fillText('Y O U   W H O   E N T E R   H E R E', dx0 + dw / 2, 86);
       c.globalAlpha = 1;
-      box(c, 0, GROUND, w, 30, '#131118');
+      groundBand(c, w, '#211D2B', '#9C93B8');
       // rubble of stones already fallen
       for (const [bx, bw2] of [[64, 10], [130, 8], [246, 12], [304, 9]])
         poly(c, [[bx, GROUND], [bx + bw2, GROUND], [bx + bw2 - 2, GROUND - 6],
@@ -1272,7 +1350,7 @@ function makeVestibule() {
     draw(c) {
       vgrad(c, 0, 0, w, 120, '#0B0E14', '#181D28');
       vgrad(c, 0, 120, w, 60, '#131720', '#0D1016');
-      box(c, 0, GROUND, w, 30, '#0F1219');
+      groundBand(c, w, '#1E2531', '#8FA3BC');
       for (let x = 20; x < w; x += 110)
         box(c, x, 30, 8, GROUND - 30, '#0C0F16');
       // the futile, chasing the blank banner forever, high on the mezzanine
@@ -1404,10 +1482,12 @@ function makeAcheron() {
         c.globalAlpha = 1;
       }
       // the pier
-      box(c, 0, GROUND, 214, 8, '#0C1013');
+      box(c, 0, GROUND, 214, 8, '#1A2228');
+      box(c, 0, GROUND - 0.6, 214, 1.8, '#7FA0AB');
       for (let x = 10; x < 210; x += 24) box(c, x, GROUND + 8, 3, 22, '#090D10');
       // far shore
-      box(c, 448, GROUND, w - 448, 8, '#0C1013');
+      box(c, 448, GROUND, w - 448, 8, '#1A2228');
+      box(c, 448, GROUND - 0.6, w - 448, 1.8, '#7FA0AB');
       // the deep tunnel, right — where the red light will come from
       poly(c, [[520, 60], [560, 52], [560, GROUND], [508, GROUND]], '#040608');
       if (this.phase === 'quake' || this.quake > 0) {
@@ -1487,6 +1567,7 @@ function makeLimbo() {
   const PIVOT = 702;
   return {
     w, name: 'limbo', entry: 12, title: 'LIMBO',
+    plats: [{ x0: 146, x1: 192, y: GROUND - 15 }],   // abandoned luggage
     reset() { resetPlayer(this.entry); clearCombat(); this.t = 0; },
     update(dt) {
       say('c1', "Limbo — the first circle. These souls did no wrong; they only lived without the light. When a train pretends to arrive, the crowd surges. Slip through behind them.");
@@ -1494,7 +1575,7 @@ function makeLimbo() {
         say('c1b', "Past the crowds, the great pagans rest in a lounge of green glass — Homer, Plato, the poets. Virgil is welcomed there as an equal. And at the very end waits Minos, the judge. His tail is the barrier. Cross while it is raised.");
       this.t += dt;
       this.surge = (this.t % 7) > 4.6;
-      if (!this.surge) for (const cl of clusters) {
+      if (!this.surge && player.y >= GROUND - 1) for (const cl of clusters) {
         if (player.x > cl.x - 8 && player.x < cl.x + cl.w + 8)
           player.x = player.x < cl.x + cl.w / 2 ? cl.x - 8 : cl.x + cl.w + 8;
       }
@@ -1514,7 +1595,13 @@ function makeLimbo() {
       box(c, 0, 104, w, 6, '#0F2A30');
       vgrad(c, 0, 110, w, 40, '#9A3220', '#792415');
       box(c, 0, 110, w, 2, '#D9C8A0');
-      box(c, 0, GROUND, w, 30, '#5E1A0F');
+      groundBand(c, w, '#4A140B', '#E8D9A0');
+      // the luggage pile — a way over the first crowd, if you jump
+      const lp = this.plats[0];
+      box(c, lp.x0 + 4, GROUND - 10, 16, 10, '#6E4A2B');
+      box(c, lp.x0 + 22, GROUND - 9, 14, 9, '#4A3B58');
+      box(c, lp.x0 + 8, lp.y + 1.5, 26, 6, '#8C5A2B');
+      platBand(c, lp, '#6E4A2B', '#E8D9A0');
       const coats = ['#5C4632', '#4A3B58', '#7A2E2E', '#2E5C4A', '#8C8C94'];
       clusters.forEach((cl, ci) => {
         for (let i = 0; i < Math.floor(cl.w / 11); i++)
@@ -1572,6 +1659,7 @@ function makeLustLvl() {
   return {
     w, name: 'lust', entry: 10, title: 'LUST',
     inGap: x => (x > 150 && x < 196) || (x > 330 && x < 386),
+    plats: [{ x0: 332, x1: 380, y: GROUND - 22 }],   // a duct rides the wind
     reset() { resetPlayer(this.entry); clearCombat(); this.t = 0; },
     update(dt) {
       say('c2', "The second circle: Lust. A storm that never rests. The wind owns your steps here — and your jumps. Crouch to hold your ground.");
@@ -1606,11 +1694,18 @@ function makeLustLvl() {
       }
       // ground with two wind-cut gaps, their lips picked out in light
       for (const [x0, x1] of [[0, 150], [196, 330], [386, w]]) {
-        box(c, x0, GROUND, x1 - x0, 30, '#2B1722');
-        box(c, x0, GROUND, x1 - x0, 2, '#8A5A6C');
-        if (x0 > 0) box(c, x0, GROUND, 3, 4, '#C79AA8');
-        if (x1 < w) box(c, x1 - 3, GROUND, 3, 4, '#C79AA8');
+        box(c, x0, GROUND, x1 - x0, 30, '#180A10');
+        box(c, x0, GROUND - 0.6, x1 - x0, 2.2, '#D9A7B4');
+        if (x0 > 0) box(c, x0, GROUND, 3, 5, '#EFE3C0');
+        if (x1 < w) box(c, x1 - 3, GROUND, 3, 5, '#EFE3C0');
       }
+      // the hanging duct platform over the second gap, chained to the dark
+      const dp = this.plats[0];
+      cable(c, dp.x0 + 4, dp.x0 + 4, dp.y - 40, 0, '#140A10');
+      cable(c, dp.x1 - 4, dp.x1 - 4, dp.y - 40, 0, '#140A10');
+      box(c, dp.x0 + 3, dp.y - 40, 1.4, 40, '#140A10');
+      box(c, dp.x1 - 5, dp.y - 40, 1.4, 40, '#140A10');
+      platBand(c, dp, '#3A2531', '#D9A7B4');
       // the couple, sheltered leeward of the duct — always together
       figure(c, 526, GROUND, 18, '#3A2531', { face: false });
       figure(c, 533, GROUND, 19, '#3A2531', { face: false });
@@ -1652,7 +1747,7 @@ function makeGluttony() {
         c.strokeStyle = 'rgba(16,16,14,0.7)';
         c.beginPath(); c.moveTo(rx, ry); c.lineTo(rx - 1.5, ry + 7); c.stroke();
       }
-      box(c, 0, GROUND, w, 30, '#2A2114');              // the mire
+      groundBand(c, w, '#241C0C', '#B0B060');           // the mire
       for (let x = 0; x < w; x += 26)
         ell(c, x + 13, GROUND + 2, 12, 2.5, '#1C160C');
       // rain striking the mud — little crowns where it lands
@@ -1704,6 +1799,7 @@ function makeGreed() {
   const carts = [];
   return {
     w, name: 'greed', entry: 10, title: 'GREED', carts,
+    plats: [{ x0: 268, x1: 310, y: GROUND - 13 }],   // hop the carts from here
     reset() {
       resetPlayer(this.entry); clearCombat();
       carts.length = 0; this.t = 0; this.n1 = 0; this.n2 = 0;
@@ -1727,7 +1823,10 @@ function makeGreed() {
         ell(c, x + 30, 128, 42, 26, '#4A3B0F');
         speckleGold(c, x + 4, 106, 60, 24, 14, x);
       }
-      box(c, 0, GROUND, w, 30, '#3A300E');
+      groundBand(c, w, '#2A2206', '#E8C84A');
+      platBand(c, this.plats[0], '#4A3B0F', '#E8C84A');   // the crate mound
+      box(c, this.plats[0].x0 + 6, GROUND - 8, 10, 8, '#3A300C');
+      box(c, this.plats[0].x0 + 24, GROUND - 8, 12, 8, '#3A300C');
       for (const k of carts) {
         box(c, k.x - 14, GROUND - 12, 28, 10, '#2A230C');
         box(c, k.x - 12, GROUND - 16, 24, 5, '#C9A227');
@@ -1818,8 +1917,10 @@ function makeWrath() {
       for (let i = 0; i < 20; i++)
         box(c, (i * 61 + T * 12 % 61) % 420, GROUND + 8 + (i * 13) % 16,
             10, 0.8, '#33270F');
-      box(c, 0, GROUND, 96, 8, '#241A0E');               // near pier
-      box(c, 420, GROUND, 140, 8, '#241A0E');            // far shore
+      box(c, 0, GROUND, 96, 8, '#332412');               // near pier
+      box(c, 0, GROUND - 0.6, 96, 1.8, '#C9A96A');
+      box(c, 420, GROUND, 140, 8, '#332412');            // far shore
+      box(c, 420, GROUND - 0.6, 140, 1.8, '#C9A96A');
       box(c, car.x - 28, GROUND - 1, 56, 6, '#100C06');  // the ferry
       box(c, car.x - 28, GROUND + 5, 56, 3, '#080604');
       for (const hd of this.hands) {
@@ -1876,7 +1977,7 @@ function makeHeresy() {
             '#F2B441');
         c.globalAlpha = 1;
       }
-      box(c, 0, GROUND, w, 30, '#240D08');
+      groundBand(c, w, '#200B05', '#F2B441');
       // tomb-cabinets, glowing from within
       for (let x = 40; x < w; x += 105) {
         box(c, x, 96, 34, 54, '#301410');
@@ -1941,9 +2042,9 @@ function makeViolence() {
         const ry = (i * 71 + T * 90) % 140;
         box(c, rx, ry, 1, 3, 'rgba(232,106,43,0.6)');
       }
-      box(c, 0, GROUND, w, 30, '#3A0D0D');
+      groundBand(c, w, '#300A0A', '#FF8A4A');
       for (const [x0, x1] of [[250, 296], [430, 472]])
-        box(c, x0, GROUND, x1 - x0, 30, '#0A0202');
+        box(c, x0 - 1, GROUND - 1, x1 - x0 + 2, 31, '#0A0202');
       // the wood of dead wiring, background
       for (let x = 60; x < w; x += 120) {
         box(c, x, 96, 3, GROUND - 96, '#1A0505');
@@ -2041,11 +2142,13 @@ function makeFraud() {
       }
       // the floor: tiles, the false ones invisible among them
       box(c, 0, GROUND, T0, 30, '#4A4436');
+      box(c, 0, GROUND - 0.6, T0, 2.2, '#C9BF9E');
       box(c, T0 + TN * TILE, GROUND, w - T0 - TN * TILE, 30, '#4A4436');
+      box(c, T0 + TN * TILE, GROUND - 0.6, w - T0 - TN * TILE, 2.2, '#C9BF9E');
       for (let i = 0; i < TN; i++) {
         if (this.holes.has(i)) { box(c, T0 + i * TILE, GROUND, TILE, 30, '#0C0B08'); continue; }
         box(c, T0 + i * TILE, GROUND, TILE, 30, '#4A4436');
-        box(c, T0 + i * TILE, GROUND, TILE - 1, 2, '#6B6552');
+        box(c, T0 + i * TILE, GROUND - 0.6, TILE - 1, 2.2, '#C9BF9E');
         // the liars carry hairline cracks — visible to whoever looks twice
         if (this.isFalse(i)) {
           const tx = T0 + i * TILE;
