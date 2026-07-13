@@ -28,6 +28,13 @@ A narrator (built-in browser voice) tells the story; subtitles can be
 toggled on the title screen (**S** or tap the button). A synthesized
 score descends one root note per circle.
 
+**And the story continues in 3D:** finish the descent and the stars card
+offers the mountain — a real-3D WebGL chapter
+([`game/3d/`](game/3d/), Three.js with dynamic shadows, fog, and a
+rising dawn): *Purgatorio — the shore of the mountain*. Walk the island,
+jump the tide-channels, meet Virgil at the gate. Same narrator, same
+lit-edge language, same instant respawns.
+
 Seventeen screens — the full descent: the park (where a stile and a low
 branch teach jump and crouch before anything with teeth asks for them),
 the leopard, the lion chase, the she-wolf, the dark ticket hall, the

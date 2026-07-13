@@ -47,7 +47,7 @@ function refreshTouches() {
 function ptrPoint(cx, cy, held) {
   return { x: (cx - uiOx) / uiS, y: (cy - uiOy) / uiS, held };
 }
-let suppressStart = false;
+let suppressStart = false, touchGo3d = false;
 function ptrDown(id, cx, cy, isTouch) {
   audioInit();
   if (isTouch) touchUI = true;
@@ -57,6 +57,7 @@ function ptrDown(id, cx, cy, isTouch) {
     toggleSubs(); suppressStart = true;
     return;
   }
+  if (mode === 'end' && p.x >= 160) touchGo3d = true;   // toward the mountain
   anyKeyPulse = true; touchRestart = true;
   ptrs.set(id, p);
   refreshTouches();
@@ -2315,7 +2316,13 @@ function drawEnd(c) {
   if (deaths)
     c.fillText(deaths + (deaths === 1 ? ' death' : ' deaths'), W / 2, 134);
   c.fillStyle = '#8A8578';
-  if (Math.sin(T * 3) > -0.2) c.fillText('press R to descend again', W / 2, 150);
+  if (Math.sin(T * 3) > -0.2) {
+    c.textAlign = 'left';
+    c.fillText('R ↺ descend again', 26, 150);
+    c.textAlign = 'right';
+    c.fillText('toward the mountain → enter', W - 26, 150);
+    c.textAlign = 'center';
+  }
   c.globalAlpha = 1;
 }
 
@@ -2346,7 +2353,9 @@ function frame(ts) {
   } else if (mode === 'end') {
     if (modeT > 2.2)
       say('endline', "And we came forth, to see again the stars.", false);
-    if (keys.KeyR || (touchRestart && modeT > 1.2)) {
+    if (keys.Enter || (touchGo3d && modeT > 1.2)) {   // the story continues
+      location.href = '3d/';
+    } else if (keys.KeyR || (touchRestart && !touchGo3d && modeT > 1.2)) {
       mode = 'title'; modeT = 0; deaths = 0; sceneIdx = 0;
       player.gunHas = false; scenes[0].reset(); clearNarration();
     }
