@@ -33,6 +33,20 @@
            display: inline-block; }
   #hint { position: absolute; top: 12px; right: 16px; color: #55524A;
           font: 12px system-ui, sans-serif; }
+  /* touch controls — visible the moment a finger touches the screen */
+  #stick, #jump { position: fixed; display: none; z-index: 5;
+                  touch-action: none; }
+  body.touch #stick, body.touch #jump { display: block; }
+  #stick { left: 26px; bottom: 30px; width: 104px; height: 104px;
+           border-radius: 50%; background: rgba(239,227,192,0.10);
+           border: 1.5px solid rgba(239,227,192,0.3); }
+  #nub { position: absolute; left: 32px; top: 32px; width: 40px; height: 40px;
+         border-radius: 50%; background: rgba(239,227,192,0.45); }
+  #jump { right: 30px; bottom: 42px; width: 82px; height: 82px;
+          border-radius: 50%; background: rgba(239,227,192,0.12);
+          border: 1.5px solid rgba(239,227,192,0.3); color: #EFE3C0;
+          font: 26px/82px system-ui, sans-serif; text-align: center; }
+  #jump.held { background: rgba(239,227,192,0.35); }
 </style>
 </head>
 <body>
@@ -46,6 +60,8 @@
   </div></div>
   <div id="hint">WASD / arrows walk · shift run · space jump · drag to steer</div>
 </div>
+<div id="stick"><div id="nub"></div></div>
+<div id="jump">▲</div>
 <!-- bundle.js is built from main.js (source of truth) with:
      npx esbuild main.js --bundle --minify --format=iife --outfile=bundle.js
      Bundled so the chapter also runs from file:// with no server. -->

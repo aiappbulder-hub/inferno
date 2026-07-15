@@ -238,34 +238,67 @@ scene.add(lamp);
 const keys = {};
 addEventListener('keydown', e => { keys[e.code] = true; audioInit(); });
 addEventListener('keyup', e => { keys[e.code] = false; });
+
 let dragYaw = 0, dragging = false, lastPX = 0;
-let stickV = { x: 0, z: 0 }, stickOn = false, stickId = -1, stickBase = null;
-addEventListener('pointerdown', e => {
-  audioInit();
-  if (e.clientX < innerWidth * 0.45 && e.pointerType !== 'mouse') {
-    stickOn = true; stickId = e.pointerId;
-    stickBase = { x: e.clientX, y: e.clientY };
-  } else { dragging = true; lastPX = e.clientX; }
+let stickV = { x: 0, z: 0 };
+
+// --- visible touch controls: a real on-screen stick + jump button ---
+const stickEl = document.getElementById('stick');
+const nubEl = document.getElementById('nub');
+const jumpEl = document.getElementById('jump');
+let stickId = -1, stickBase = null;
+let jumpId = -1;
+
+function showTouchUI() { document.body.classList.add('touch'); }
+// don't wait for a mystery gesture to reveal the controls — if the
+// device can touch, show them from the first frame
+if ('ontouchstart' in window || navigator.maxTouchPoints > 0 ||
+    matchMedia('(pointer: coarse)').matches) showTouchUI();
+
+// the stick: fixed at bottom-left, drag anywhere near it to steer
+stickEl.addEventListener('pointerdown', e => {
+  e.preventDefault(); audioInit(); showTouchUI();
+  stickId = e.pointerId;
+  const r = stickEl.getBoundingClientRect();
+  stickBase = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  stickEl.setPointerCapture(stickId);
+});
+stickEl.addEventListener('pointermove', e => {
+  if (e.pointerId !== stickId || !stickBase) return;
+  const dx = e.clientX - stickBase.x, dy = e.clientY - stickBase.y;
+  const max = 40, d = Math.min(1, Math.hypot(dx, dy) / max);
+  const a = Math.atan2(dy, dx);
+  stickV.x = Math.cos(a) * d; stickV.z = Math.sin(a) * d;
+  nubEl.style.transform = `translate(${Math.cos(a) * d * max}px, ${Math.sin(a) * d * max}px)`;
+});
+function stickRelease(e) {
+  if (e.pointerId !== stickId) return;
+  stickId = -1; stickV = { x: 0, z: 0 };
+  nubEl.style.transform = 'translate(0,0)';
+}
+stickEl.addEventListener('pointerup', stickRelease);
+stickEl.addEventListener('pointercancel', stickRelease);
+
+// the jump button: tap it, plain and visible
+jumpEl.addEventListener('pointerdown', e => {
+  e.preventDefault(); audioInit(); showTouchUI();
+  jumpId = e.pointerId; jumpEl.classList.add('held'); doJump();
+});
+function jumpRelease(e) {
+  if (e.pointerId !== jumpId) return;
+  jumpId = -1; jumpEl.classList.remove('held');
+}
+jumpEl.addEventListener('pointerup', jumpRelease);
+jumpEl.addEventListener('pointercancel', jumpRelease);
+
+// dragging anywhere else on the canvas orbits the camera
+renderer.domElement.addEventListener('pointerdown', e => {
+  audioInit(); dragging = true; lastPX = e.clientX;
 });
 addEventListener('pointermove', e => {
-  if (stickOn && e.pointerId === stickId) {
-    stickV.x = Math.max(-1, Math.min(1, (e.clientX - stickBase.x) / 48));
-    stickV.z = Math.max(-1, Math.min(1, (e.clientY - stickBase.y) / 48));
-  } else if (dragging) {
-    dragYaw -= (e.clientX - lastPX) * 0.004; lastPX = e.clientX;
-  }
+  if (dragging) { dragYaw -= (e.clientX - lastPX) * 0.004; lastPX = e.clientX; }
 });
-addEventListener('pointerup', e => {
-  if (e.pointerId === stickId) { stickOn = false; stickV = { x: 0, z: 0 }; }
-  dragging = false;
-  if (e.pointerType !== 'mouse' && e.clientX >= innerWidth * 0.45 &&
-      performance.now() - tapT < 220) doJump();
-});
-let tapT = 0;
-addEventListener('pointerdown', e => {
-  if (e.clientX >= innerWidth * 0.45 && e.pointerType !== 'mouse')
-    tapT = performance.now();
-});
+addEventListener('pointerup', () => { dragging = false; });
 
 // ---------------------------------------------------------------- audio --
 let AC = null, master = null;
@@ -357,7 +390,9 @@ function frame(ts) {
     const strafe = (keys.KeyD || keys.ArrowRight ? 1 : 0) -
                    (keys.KeyA || keys.ArrowLeft ? 1 : 0) + stickV.x;
     if (keys.Space) doJump();
-    const running = keys.ShiftLeft || keys.ShiftRight || stickOn;
+    // on the stick, pushing it further out runs; a light touch walks
+    const stickMag = Math.hypot(stickV.x, stickV.z);
+    const running = keys.ShiftLeft || keys.ShiftRight || stickMag > 0.6;
     const spd = (running ? 8.2 : 4.4);
     const mx = Math.max(-1, Math.min(1, strafe)), mz = Math.max(-1, Math.min(1, fwd));
     const mag = Math.hypot(mx, mz);

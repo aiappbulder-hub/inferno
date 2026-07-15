@@ -16,6 +16,9 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyS' && mode === 'title') {
     toggleSubs(); keys[e.code] = true; audioInit(); return;
   }
+  if (e.code === 'KeyM' && mode === 'title') {   // skip to the 3D chapter
+    location.href = '3d/'; return;
+  }
   if (!keys[e.code]) anyKeyPulse = true;
   keys[e.code] = true;
   audioInit();
@@ -23,7 +26,11 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => { keys[e.code] = false; });
 
 // touch controls — appear on first touch, hold-to-run on the pads
-let touchUI = false, touchRestart = false;
+// show touch buttons from the first frame on any touch-capable device —
+// don't wait for a mystery gesture to reveal them
+let touchUI = ('ontouchstart' in window) || navigator.maxTouchPoints > 0 ||
+              matchMedia('(pointer: coarse)').matches;
+let touchRestart = false;
 let uiS = 1, uiOx = 0, uiOy = 0;
 const touchHeld = new Set();
 const btns = [
@@ -52,10 +59,10 @@ function ptrDown(id, cx, cy, isTouch) {
   audioInit();
   if (isTouch) touchUI = true;
   const p = ptrPoint(cx, cy);
-  // the subtitles toggle on the title screen
-  if (mode === 'title' && p.x > 96 && p.x < 224 && p.y > 158 && p.y < 174) {
-    toggleSubs(); suppressStart = true;
-    return;
+  // the two buttons on the title screen: subtitles toggle, skip to 3D
+  if (mode === 'title' && p.y > 158 && p.y < 174) {
+    if (p.x > 20 && p.x < 148) { toggleSubs(); suppressStart = true; return; }
+    if (p.x > 172 && p.x < 300) { location.href = '3d/'; return; }
   }
   if (mode === 'end' && p.x >= 160) touchGo3d = true;   // toward the mountain
   anyKeyPulse = true; touchRestart = true;
@@ -109,7 +116,9 @@ const down  = () => keys.ArrowDown || keys.KeyS || touchHeld.has('ArrowDown');
 const fire  = () => keys.KeyX || keys.KeyC || touchHeld.has('KeyX');
 
 function drawTouchUI(c) {
-  if (!touchUI) return;
+  // the movement/jump/fire pads only make sense during actual play —
+  // on title/quote/end they'd sit on top of those screens' own buttons
+  if (!touchUI || mode === 'title' || mode === 'quote' || mode === 'end') return;
   c.textAlign = 'center'; c.textBaseline = 'middle';
   for (const b of btns) {
     const held = touchHeld.has(b.k);
@@ -2272,14 +2281,21 @@ function drawTitle(c) {
     c.fillStyle = '#8A8578'; c.font = '8px system-ui, sans-serif';
     c.fillText('press any key', W / 2, 150);
   }
-  // subtitles toggle
-  c.fillStyle = 'rgba(239,227,192,0.08)';
-  c.fillRect(96, 158, 128, 16);
-  c.strokeStyle = 'rgba(239,227,192,0.25)';
-  c.strokeRect(96.5, 158.5, 127, 15);
-  c.fillStyle = subsOn ? '#B8AE96' : '#55524A';
+  // subtitles toggle (left) and skip-to-3D (right) — two buttons, one row
   c.font = '7px system-ui, sans-serif';
-  c.fillText('subtitles: ' + (subsOn ? 'ON' : 'OFF') + '   (S / tap)', W / 2, 168);
+  c.fillStyle = 'rgba(239,227,192,0.08)';
+  c.fillRect(20, 158, 128, 16);
+  c.strokeStyle = 'rgba(239,227,192,0.25)';
+  c.strokeRect(20.5, 158.5, 127, 15);
+  c.fillStyle = subsOn ? '#B8AE96' : '#55524A';
+  c.fillText('subtitles: ' + (subsOn ? 'ON' : 'OFF') + '  (S)', 84, 168);
+
+  c.fillStyle = 'rgba(196,120,138,0.14)';
+  c.fillRect(172, 158, 128, 16);
+  c.strokeStyle = 'rgba(196,120,138,0.4)';
+  c.strokeRect(172.5, 158.5, 127, 15);
+  c.fillStyle = '#D9A7B4';
+  c.fillText('walk the mountain (3D) →', 236, 168);
 }
 function drawQuote(c) {
   box(c, 0, 0, W, H, '#000');
