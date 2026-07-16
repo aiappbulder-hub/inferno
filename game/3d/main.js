@@ -197,42 +197,200 @@ const GATE_Z = 86;
 }
 
 // --------------------------------------------------------------- actors --
-function makeFigure(coat, skin, cap) {
+// Articulated humanoids: a full joint hierarchy (pelvis, torso, neck/head,
+// shoulders→elbows→hands, hips→knees→feet) driven by procedural walk /
+// run / idle / jump cycles. Stylized, not photoreal — but they move like
+// people, not pills.
+function limbSeg(len, r, mat) {
   const g = new THREE.Group();
-  const cmat = new THREE.MeshStandardMaterial({ color: coat, roughness: 0.85 });
-  const smat = new THREE.MeshStandardMaterial({ color: skin, roughness: 0.7 });
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.34, 0.9, 6, 12), cmat);
-  body.position.y = 1.0; body.castShadow = true;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 16, 16), smat);
-  head.position.y = 1.95; head.castShadow = true;
-  g.add(body, head);
-  if (cap) {
-    const cm = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.12, 14),
-      new THREE.MeshStandardMaterial({ color: 0x33383f }));
-    cm.position.y = 2.14;
-    g.add(cm);
-  } else {
-    const hair = new THREE.Mesh(new THREE.SphereGeometry(0.28, 14, 14,
-      0, Math.PI * 2, 0, Math.PI * 0.45),
-      new THREE.MeshStandardMaterial({ color: 0x14120f }));
-    hair.position.y = 1.97;
-    g.add(hair);
-  }
+  const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, Math.max(0.02, len - r * 2), 4, 10), mat);
+  m.position.y = -len / 2;
+  m.castShadow = true;
+  g.add(m);
   return g;
 }
-const dante = makeFigure(0x2a2f38, 0xc9986b, false);
+function makeHuman(o) {
+  const coatM = new THREE.MeshStandardMaterial({ color: o.coat, roughness: 0.88 });
+  const trouM = new THREE.MeshStandardMaterial({ color: o.trousers, roughness: 0.9 });
+  const skinM = new THREE.MeshStandardMaterial({ color: o.skin, roughness: 0.6 });
+  const hairM = new THREE.MeshStandardMaterial({ color: o.hair, roughness: 0.95 });
+  const shoeM = new THREE.MeshStandardMaterial({ color: 0x15130f, roughness: 0.7 });
+
+  const root = new THREE.Group();
+  const parts = { arms: {}, legs: {} };
+
+  const pelvis = new THREE.Group();
+  pelvis.position.y = 1.02;
+  root.add(pelvis);
+  parts.pelvis = pelvis;
+  const hips = new THREE.Mesh(new THREE.CapsuleGeometry(0.185, 0.1, 4, 10), trouM);
+  hips.rotation.z = Math.PI / 2; hips.castShadow = true;
+  pelvis.add(hips);
+
+  const torso = new THREE.Group();
+  pelvis.add(torso);
+  parts.torso = torso;
+  const chest = new THREE.Mesh(new THREE.CapsuleGeometry(0.21, 0.3, 4, 12), coatM);
+  chest.position.y = 0.42; chest.castShadow = true;
+  torso.add(chest);
+  parts.chest = chest;
+  // the overcoat's skirt, flaring past the hips
+  const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.225, 0.29, 0.4, 12), coatM);
+  skirt.position.y = 0.08; skirt.castShadow = true;
+  torso.add(skirt);
+
+  // neck + head with a face
+  const neck = new THREE.Group();
+  neck.position.y = 0.68;
+  torso.add(neck);
+  parts.head = neck;
+  const throat = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.09, 8), skinM);
+  throat.position.y = 0.03; throat.castShadow = true;
+  neck.add(throat);
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.15, 20, 18), skinM);
+  skull.position.y = 0.17; skull.scale.y = 1.12; skull.castShadow = true;
+  neck.add(skull);
+  for (const sx of [-0.055, 0.055]) {               // eyes
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.017, 8, 8),
+      new THREE.MeshStandardMaterial({ color: 0x1a130c, roughness: 0.3 }));
+    eye.position.set(sx, 0.19, 0.132);
+    neck.add(eye);
+    const brow = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.012, 0.02), hairM);
+    brow.position.set(sx, 0.225, 0.132);
+    neck.add(brow);
+  }
+  const nose = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.05, 0.035), skinM);
+  nose.position.set(0, 0.155, 0.145);
+  neck.add(nose);
+  if (o.cap) {                                       // Virgil's attendant cap
+    const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.145, 0.155, 0.09, 16),
+      new THREE.MeshStandardMaterial({ color: 0x33383f, roughness: 0.8 }));
+    crown.position.y = 0.315; crown.castShadow = true;
+    neck.add(crown);
+    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.022, 16),
+      new THREE.MeshStandardMaterial({ color: 0x272b31, roughness: 0.8 }));
+    brim.position.set(0, 0.27, 0.05);
+    neck.add(brim);
+  } else {                                           // hair, swept back
+    const hair = new THREE.Mesh(new THREE.SphereGeometry(0.157, 18, 14,
+      0, Math.PI * 2, 0, Math.PI * 0.55), hairM);
+    hair.position.y = 0.185; hair.scale.y = 1.1;
+    hair.rotation.x = -0.35; hair.castShadow = true;
+    neck.add(hair);
+  }
+
+  // arms: shoulder → elbow → hand
+  for (const [key, sx] of [['L', -0.255], ['R', 0.255]]) {
+    const sh = new THREE.Group();
+    sh.position.set(sx, 0.58, 0);
+    torso.add(sh);
+    const upper = limbSeg(0.32, 0.06, coatM);
+    sh.add(upper);
+    const el = new THREE.Group();
+    el.position.y = -0.32;
+    upper.add(el);
+    const fore = limbSeg(0.28, 0.05, coatM);
+    el.add(fore);
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 10), skinM);
+    hand.position.y = -0.29; hand.castShadow = true;
+    fore.add(hand);
+    parts.arms[key] = { sh, el, hand };
+  }
+  // legs: hip → knee → foot
+  for (const [key, sx] of [['L', -0.105], ['R', 0.105]]) {
+    const hip = new THREE.Group();
+    hip.position.set(sx, -0.02, 0);
+    pelvis.add(hip);
+    const thigh = limbSeg(0.5, 0.082, trouM);
+    hip.add(thigh);
+    const knee = new THREE.Group();
+    knee.position.y = -0.5;
+    thigh.add(knee);
+    const shin = limbSeg(0.48, 0.06, trouM);
+    knee.add(shin);
+    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.07, 0.23), shoeM);
+    foot.position.set(0, -0.475, 0.055); foot.castShadow = true;
+    shin.add(foot);
+    parts.legs[key] = { hip, knee };
+  }
+  return { root, parts };
+}
+
+// the animation brain: one function, four gaits blended by move/run/air
+function animateHuman(h, a) {
+  const p = h.parts, ph = a.phase, mv = a.move, rn = a.run;
+  const L = p.legs.L, R = p.legs.R, AL = p.arms.L, AR = p.arms.R;
+  if (!a.grounded) {
+    // airborne: tuck the leading leg, trail the other, arms out for balance
+    L.hip.rotation.x = -0.85; L.knee.rotation.x = 1.15;
+    R.hip.rotation.x = 0.35; R.knee.rotation.x = 0.55;
+    AL.sh.rotation.x = -0.9; AL.el.rotation.x = -0.35;
+    AR.sh.rotation.x = 0.4; AR.el.rotation.x = -0.6;
+    p.torso.rotation.x = 0.14;
+    p.pelvis.position.y = 1.02;
+  } else {
+    const swing = Math.sin(ph), cswing = Math.sin(ph + Math.PI);
+    const amp = mv * (0.42 + 0.35 * rn);
+    // legs: hips scissor; the knee folds during its leg's swing-through
+    L.hip.rotation.x = swing * amp;
+    R.hip.rotation.x = cswing * amp;
+    L.knee.rotation.x = Math.max(0, Math.sin(ph + 1.1)) * mv * (0.55 + 0.85 * rn);
+    R.knee.rotation.x = Math.max(0, Math.sin(ph + Math.PI + 1.1)) * mv * (0.55 + 0.85 * rn);
+    // arms counter-swing, elbows carried higher at a run
+    AL.sh.rotation.x = cswing * amp * 0.85;
+    AR.sh.rotation.x = swing * amp * 0.85;
+    AL.el.rotation.x = -(0.18 + 0.75 * rn * mv +
+                         Math.max(0, Math.sin(ph)) * 0.25 * mv);
+    AR.el.rotation.x = -(0.18 + 0.75 * rn * mv +
+                         Math.max(0, Math.sin(ph + Math.PI)) * 0.25 * mv);
+    // torso: forward lean with speed, counter-twist against the hips,
+    // and quiet breathing when still
+    p.torso.rotation.x = 0.03 + (0.06 + 0.14 * rn) * mv;
+    p.torso.rotation.y = swing * 0.1 * mv;
+    p.pelvis.rotation.y = -swing * 0.08 * mv;
+    p.pelvis.position.y = 1.02 + Math.abs(Math.sin(ph)) * 0.05 * mv +
+                          Math.sin(a.t * 1.7) * 0.006 * (1 - mv);
+    p.chest.scale.setScalar(1 + Math.sin(a.t * 1.7) * 0.015 * (1 - mv));
+    // head steadies against the bob
+    p.head.rotation.x = -p.torso.rotation.x * 0.5;
+    if (!a.headYawOverride) p.head.rotation.y *= 0.9;
+    // idle arms hang with a small sway
+    if (mv < 0.05) {
+      AL.sh.rotation.x = Math.sin(a.t * 1.1) * 0.03;
+      AR.sh.rotation.x = Math.sin(a.t * 1.1 + 2) * 0.03;
+      AL.sh.rotation.z = 0.07; AR.sh.rotation.z = -0.07;
+    } else { AL.sh.rotation.z = 0.04; AR.sh.rotation.z = -0.04; }
+  }
+}
+
+const danteH = makeHuman({ coat: 0x3a4150, trousers: 0x272c36,
+                           skin: 0xc9986b, hair: 0x14120f, cap: false });
+const dante = danteH.root;
 // a soft warm fill so he reads against every backdrop
-const fill = new THREE.PointLight(0xffd9b0, 4, 8);
-fill.position.set(0.6, 2.6, -1.4);
+const fill = new THREE.PointLight(0xffd9b0, 10, 9);
+fill.position.set(0.4, 2.8, -2.0);
 dante.add(fill);
 scene.add(dante);
-const virgil = makeFigure(0x565b63, 0xc9986b, true);
+
+const virgilH = makeHuman({ coat: 0x565b63, trousers: 0x3c4048,
+                            skin: 0xc9986b, hair: 0x8a8578, cap: true });
+const virgil = virgilH.root;
 virgil.position.set(1.6, 0, GATE_Z - 4);
 virgil.rotation.y = Math.PI;
 scene.add(virgil);
+// Virgil carries his lamp in his right hand — light and all
+{
+  const vr = virgilH.parts.arms.R;
+  vr.sh.rotation.x = -0.5; vr.el.rotation.x = -0.55;
+  const lampBody = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.065, 0.14, 10),
+    new THREE.MeshStandardMaterial({ color: 0xe8a33d, emissive: 0xe8a33d,
+      emissiveIntensity: 0.9 }));
+  lampBody.position.y = -0.14;
+  vr.hand.add(lampBody);
+}
 const lamp = new THREE.PointLight(0xe8a33d, 8, 12);
-lamp.position.set(1.0, 1.4, GATE_Z - 4.6);
-scene.add(lamp);
+lamp.position.y = -0.16;
+virgilH.parts.arms.R.hand.add(lamp);
 
 // ---------------------------------------------------------------- input --
 const keys = {};
@@ -407,7 +565,8 @@ function frame(ts) {
       while (dy2 < -Math.PI) dy2 += Math.PI * 2;
       P.yaw += dy2 * Math.min(1, dt * 10);
       P.run += dt * (running ? 13 : 8);
-    }
+      P.moveT = 1; P.runT = running ? 1 : 0;
+    } else { P.moveT = 0; P.runT = 0; }
     P.x = Math.max(-18, Math.min(18, P.x));
     P.z = Math.max(-3, Math.min(GATE_Z + 2, P.z));
     // gravity & ground
@@ -450,13 +609,31 @@ function frame(ts) {
   scene.fog.color.setHSL(0.62 - dawn * 0.08, 0.3, 0.18 + dawn * 0.12);
   scene.background.copy(scene.fog.color);
 
-  // actors
+  // actors — the rigs do the acting
+  P.moveS = (P.moveS || 0) + ((P.moveT || 0) - (P.moveS || 0)) * Math.min(1, dt * 9);
+  P.runS = (P.runS || 0) + ((P.runT || 0) - (P.runS || 0)) * Math.min(1, dt * 6);
   dante.position.set(P.x, P.y, P.z);
   dante.rotation.y = P.yaw;
-  const bob = P.on ? Math.abs(Math.sin(P.run)) * 0.08 : 0.12;
-  dante.children[0].position.y = 1.0 + bob;
-  dante.children[1].position.y = 1.95 + bob;
+  animateHuman(danteH, { t: T, phase: P.run, move: P.moveS, run: P.runS,
+                         grounded: P.on });
+  // Virgil: breathing idle, lamp arm held, head turning to watch Dante come
   virgil.position.y = groundH(virgil.position.x, virgil.position.z);
+  animateHuman(virgilH, { t: T + 3.1, phase: 0, move: 0, run: 0,
+                          grounded: true, headYawOverride: true });
+  const va = virgilH.parts.arms.R;
+  va.sh.rotation.x = -0.5 + Math.sin(T * 1.4) * 0.03;   // the lamp sways
+  va.el.rotation.x = -0.55;
+  {
+    const wy = Math.atan2(P.x - virgil.position.x, P.z - virgil.position.z);
+    let hd = wy - virgil.rotation.y - virgilH.parts.head.rotation.y;
+    while (hd > Math.PI) hd -= Math.PI * 2;
+    while (hd < -Math.PI) hd += Math.PI * 2;
+    const near = P.z > GATE_Z - 30;
+    const tgt = near ? Math.max(-0.75, Math.min(0.75,
+      virgilH.parts.head.rotation.y + hd)) : 0;
+    virgilH.parts.head.rotation.y +=
+      (tgt - virgilH.parts.head.rotation.y) * Math.min(1, dt * 3);
+  }
   lamp.intensity = 7 + Math.sin(T * 2.1) * 1.2;
   sunGlow.material.opacity = 0.13 + Math.sin(T * 0.8) * 0.03;
 
@@ -472,8 +649,8 @@ function frame(ts) {
   // sea breathes
   sea.position.y = -1.6 + Math.sin(T * 0.6) * 0.06;
 
-  // camera: over the shoulder, drag to orbit
-  const cd = 8.5, ch = 3.6;
+  // camera: over the shoulder, drag to orbit — close enough to see a face
+  const cd = 7.0, ch = 3.0;
   const cx = P.x - Math.sin(dragYaw) * cd;
   const cz = P.z - Math.cos(dragYaw) * cd;
   camera.position.lerp(new THREE.Vector3(cx, P.y + ch, cz), Math.min(1, dt * 5));
