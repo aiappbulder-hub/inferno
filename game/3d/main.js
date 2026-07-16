@@ -201,20 +201,28 @@ const GATE_Z = 86;
 // shoulders→elbows→hands, hips→knees→feet) driven by procedural walk /
 // run / idle / jump cycles. Stylized, not photoreal — but they move like
 // people, not pills.
-function limbSeg(len, r, mat) {
+function limbSeg(len, r, mat, jointM) {
   const g = new THREE.Group();
   const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, Math.max(0.02, len - r * 2), 4, 10), mat);
   m.position.y = -len / 2;
   m.castShadow = true;
   g.add(m);
+  if (jointM) {                      // the mannequin's visible ball joint
+    const j = new THREE.Mesh(new THREE.SphereGeometry(r * 1.35, 10, 10), jointM);
+    j.castShadow = true;
+    g.add(j);
+  }
   return g;
 }
 function makeHuman(o) {
   const coatM = new THREE.MeshStandardMaterial({ color: o.coat, roughness: 0.88 });
   const trouM = new THREE.MeshStandardMaterial({ color: o.trousers, roughness: 0.9 });
-  const skinM = new THREE.MeshStandardMaterial({ color: o.skin, roughness: 0.6 });
+  const skinM = new THREE.MeshStandardMaterial({ color: o.skin, roughness: 0.75 });
   const hairM = new THREE.MeshStandardMaterial({ color: o.hair, roughness: 0.95 });
-  const shoeM = new THREE.MeshStandardMaterial({ color: 0x15130f, roughness: 0.7 });
+  const shoeM = new THREE.MeshStandardMaterial({ color: o.shoe ?? 0x15130f, roughness: 0.7 });
+  const jointM = o.joint
+    ? new THREE.MeshStandardMaterial({ color: o.joint, roughness: 0.85 })
+    : null;
 
   const root = new THREE.Group();
   const parts = { arms: {}, legs: {} };
@@ -262,21 +270,37 @@ function makeHuman(o) {
   const nose = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.05, 0.035), skinM);
   nose.position.set(0, 0.155, 0.145);
   neck.add(nose);
-  if (o.cap) {                                       // Virgil's attendant cap
-    const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.145, 0.155, 0.09, 16),
-      new THREE.MeshStandardMaterial({ color: 0x33383f, roughness: 0.8 }));
-    crown.position.y = 0.315; crown.castShadow = true;
+  if (o.tophat) {                                    // Virgil's top hat
+    const hatM = new THREE.MeshStandardMaterial({ color: 0x241f1c, roughness: 0.85 });
+    const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.115, 0.125, 0.24, 16), hatM);
+    crown.position.y = 0.4; crown.castShadow = true;
     neck.add(crown);
-    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.022, 16),
-      new THREE.MeshStandardMaterial({ color: 0x272b31, roughness: 0.8 }));
-    brim.position.set(0, 0.27, 0.05);
+    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.185, 0.185, 0.02, 18), hatM);
+    brim.position.y = 0.285; brim.castShadow = true;
     neck.add(brim);
-  } else {                                           // hair, swept back
-    const hair = new THREE.Mesh(new THREE.SphereGeometry(0.157, 18, 14,
-      0, Math.PI * 2, 0, Math.PI * 0.55), hairM);
-    hair.position.y = 0.185; hair.scale.y = 1.1;
-    hair.rotation.x = -0.35; hair.castShadow = true;
+  } else {                                           // carved bowl hair
+    const hair = new THREE.Mesh(new THREE.SphereGeometry(0.158, 18, 14,
+      0, Math.PI * 2, 0, Math.PI * 0.58), hairM);
+    hair.position.y = 0.18; hair.scale.y = 1.08;
+    hair.rotation.x = -0.12; hair.castShadow = true;
     neck.add(hair);
+  }
+  if (o.cape) {                                      // the traveler's cape
+    const capeM = new THREE.MeshStandardMaterial({ color: o.cape,
+      roughness: 1, side: THREE.DoubleSide });
+    const cape = new THREE.Mesh(
+      new THREE.ConeGeometry(0.36, 0.98, 10, 1, true), capeM);
+    cape.scale.z = 0.5;
+    cape.position.set(0, 0.28, -0.1);
+    cape.castShadow = true;
+    torso.add(cape);
+    parts.cape = cape;
+    // the mantle over the shoulders
+    const mantle = new THREE.Mesh(
+      new THREE.ConeGeometry(0.3, 0.3, 10, 1, true), capeM);
+    mantle.position.y = 0.62;
+    mantle.castShadow = true;
+    torso.add(mantle);
   }
 
   // arms: shoulder → elbow → hand
@@ -284,12 +308,12 @@ function makeHuman(o) {
     const sh = new THREE.Group();
     sh.position.set(sx, 0.58, 0);
     torso.add(sh);
-    const upper = limbSeg(0.32, 0.06, coatM);
+    const upper = limbSeg(0.32, 0.06, o.bareArms ? skinM : coatM, jointM);
     sh.add(upper);
     const el = new THREE.Group();
     el.position.y = -0.32;
     upper.add(el);
-    const fore = limbSeg(0.28, 0.05, coatM);
+    const fore = limbSeg(0.28, 0.05, o.bareArms ? skinM : coatM, jointM);
     el.add(fore);
     const hand = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 10), skinM);
     hand.position.y = -0.29; hand.castShadow = true;
@@ -301,12 +325,12 @@ function makeHuman(o) {
     const hip = new THREE.Group();
     hip.position.set(sx, -0.02, 0);
     pelvis.add(hip);
-    const thigh = limbSeg(0.5, 0.082, trouM);
+    const thigh = limbSeg(0.5, 0.082, trouM, jointM);
     hip.add(thigh);
     const knee = new THREE.Group();
     knee.position.y = -0.5;
     thigh.add(knee);
-    const shin = limbSeg(0.48, 0.06, trouM);
+    const shin = limbSeg(0.48, 0.06, trouM, jointM);
     knee.add(shin);
     const foot = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.07, 0.23), shoeM);
     foot.position.set(0, -0.475, 0.055); foot.castShadow = true;
@@ -361,49 +385,56 @@ function animateHuman(h, a) {
       AL.sh.rotation.z = 0.07; AR.sh.rotation.z = -0.07;
     } else { AL.sh.rotation.z = 0.04; AR.sh.rotation.z = -0.04; }
   }
+  if (p.cape) {          // the cape trails with speed, lifts in the air
+    p.cape.rotation.x = 0.05 + mv * 0.28 + Math.sin(ph) * 0.05 * mv +
+                        (a.grounded ? 0 : 0.3);
+  }
 }
 
-const danteH = makeHuman({ coat: 0x3a4150, trousers: 0x272c36,
-                           skin: 0xc9986b, hair: 0x14120f, cap: false });
+// DANTE — a dark-walnut artist's mannequin under a rough burlap cape
+const danteH = makeHuman({
+  coat: 0x5c4132, trousers: 0x4e3628, skin: 0x6b4a33, hair: 0x241610,
+  joint: 0x3a2a1d, shoe: 0x33241a, bareArms: true,
+  cape: 0xa39478, tophat: false,
+});
 const dante = danteH.root;
-// a scarf in Inferno crimson — the one warm note he carried up with him
-{
-  const sm = new THREE.MeshStandardMaterial({ color: 0x8c2b2b, roughness: 0.9 });
-  const wrap = new THREE.Mesh(new THREE.TorusGeometry(0.088, 0.036, 8, 16), sm);
-  wrap.rotation.x = Math.PI / 2;
-  wrap.position.y = 0.665;
-  wrap.castShadow = true;
-  danteH.parts.torso.add(wrap);
-  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.24, 0.024), sm);
-  tail.position.set(0.06, 0.56, 0.13);
-  tail.rotation.x = 0.18;
-  tail.castShadow = true;
-  danteH.parts.torso.add(tail);
-}
 // a soft warm fill so he reads against every backdrop
 const fill = new THREE.PointLight(0xffd9b0, 10, 9);
 fill.position.set(0.4, 2.8, -2.0);
 dante.add(fill);
 scene.add(dante);
 
-const virgilH = makeHuman({ coat: 0x565b63, trousers: 0x3c4048,
-                            skin: 0xc9986b, hair: 0x8a8578, cap: true });
+// VIRGIL — lighter oak, belted khaki greatcoat, top hat, and an Edison
+// bulb held up on its wire: his lamp, as the renders have it
+const virgilH = makeHuman({
+  coat: 0x8f8266, trousers: 0x6e5138, skin: 0x96704c, hair: 0x8a8578,
+  joint: 0x59422e, shoe: 0x2b2019, tophat: true,
+});
 const virgil = virgilH.root;
 virgil.position.set(1.6, 0, GATE_Z - 4);
 virgil.rotation.y = Math.PI;
 scene.add(virgil);
-// Virgil carries his lamp in his right hand — light and all
 {
   const vr = virgilH.parts.arms.R;
-  vr.sh.rotation.x = -0.5; vr.el.rotation.x = -0.55;
-  const lampBody = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.065, 0.14, 10),
-    new THREE.MeshStandardMaterial({ color: 0xe8a33d, emissive: 0xe8a33d,
-      emissiveIntensity: 0.9 }));
-  lampBody.position.y = -0.14;
-  vr.hand.add(lampBody);
+  vr.sh.rotation.x = -0.95; vr.el.rotation.x = -0.25;
+  const glass = new THREE.Mesh(new THREE.SphereGeometry(0.075, 14, 14),
+    new THREE.MeshStandardMaterial({ color: 0xfff2cc, transparent: true,
+      opacity: 0.28, roughness: 0.1 }));
+  glass.position.y = -0.16; glass.scale.y = 1.25;
+  vr.hand.add(glass);
+  const filament = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.06, 6),
+    new THREE.MeshStandardMaterial({ color: 0xffc873,
+      emissive: 0xffb84d, emissiveIntensity: 3.2 }));
+  filament.position.y = -0.16;
+  vr.hand.add(filament);
+  const socket = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.032, 0.05, 8),
+    new THREE.MeshStandardMaterial({ color: 0x6b5a3a, metalness: 0.5,
+      roughness: 0.5 }));
+  socket.position.y = -0.075;
+  vr.hand.add(socket);
 }
-const lamp = new THREE.PointLight(0xe8a33d, 8, 12);
-lamp.position.y = -0.16;
+const lamp = new THREE.PointLight(0xffc873, 9, 13);
+lamp.position.y = -0.18;
 virgilH.parts.arms.R.hand.add(lamp);
 
 // ---------------------------------------------------------------- input --
@@ -648,8 +679,8 @@ function frame(ts) {
   animateHuman(virgilH, { t: T + 3.1, phase: 0, move: 0, run: 0,
                           grounded: true, headYawOverride: true });
   const va = virgilH.parts.arms.R;
-  va.sh.rotation.x = -0.5 + Math.sin(T * 1.4) * 0.03;   // the lamp sways
-  va.el.rotation.x = -0.55;
+  va.sh.rotation.x = -0.95 + Math.sin(T * 1.4) * 0.03;  // the bulb, held high
+  va.el.rotation.x = -0.25;
   {
     const wy = Math.atan2(P.x - virgil.position.x, P.z - virgil.position.z);
     let hd = wy - virgil.rotation.y - virgilH.parts.head.rotation.y;
