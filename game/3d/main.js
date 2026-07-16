@@ -366,6 +366,20 @@ function animateHuman(h, a) {
 const danteH = makeHuman({ coat: 0x3a4150, trousers: 0x272c36,
                            skin: 0xc9986b, hair: 0x14120f, cap: false });
 const dante = danteH.root;
+// a scarf in Inferno crimson — the one warm note he carried up with him
+{
+  const sm = new THREE.MeshStandardMaterial({ color: 0x8c2b2b, roughness: 0.9 });
+  const wrap = new THREE.Mesh(new THREE.TorusGeometry(0.088, 0.036, 8, 16), sm);
+  wrap.rotation.x = Math.PI / 2;
+  wrap.position.y = 0.665;
+  wrap.castShadow = true;
+  danteH.parts.torso.add(wrap);
+  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.24, 0.024), sm);
+  tail.position.set(0.06, 0.56, 0.13);
+  tail.rotation.x = 0.18;
+  tail.castShadow = true;
+  danteH.parts.torso.add(tail);
+}
 // a soft warm fill so he reads against every backdrop
 const fill = new THREE.PointLight(0xffd9b0, 10, 9);
 fill.position.set(0.4, 2.8, -2.0);
@@ -555,8 +569,10 @@ function frame(ts) {
     const mx = Math.max(-1, Math.min(1, strafe)), mz = Math.max(-1, Math.min(1, fwd));
     const mag = Math.hypot(mx, mz);
     if (mag > 0.05) {
-      const dx = (Math.sin(dragYaw) * mz + Math.cos(dragYaw) * mx) / Math.max(1, mag);
-      const dz = (Math.cos(dragYaw) * mz - Math.sin(dragYaw) * mx) / Math.max(1, mag);
+      // camera forward is (sin yaw, cos yaw); screen-right is its cross
+      // with up = (-cos yaw, sin yaw) — so D/stick-right goes screen-right
+      const dx = (Math.sin(dragYaw) * mz - Math.cos(dragYaw) * mx) / Math.max(1, mag);
+      const dz = (Math.cos(dragYaw) * mz + Math.sin(dragYaw) * mx) / Math.max(1, mag);
       P.x += dx * spd * dt;
       P.z += dz * spd * dt;
       const tyaw = Math.atan2(dx, dz);
@@ -613,9 +629,20 @@ function frame(ts) {
   P.moveS = (P.moveS || 0) + ((P.moveT || 0) - (P.moveS || 0)) * Math.min(1, dt * 9);
   P.runS = (P.runS || 0) + ((P.runT || 0) - (P.runS || 0)) * Math.min(1, dt * 6);
   dante.position.set(P.x, P.y, P.z);
-  dante.rotation.y = P.yaw;
+  // bank into turns: the body leans against the yaw rate
+  const yawRate = (P.yaw - (P.lastYaw ?? P.yaw)) / Math.max(dt, 0.001);
+  P.lastYaw = P.yaw;
+  P.bank = (P.bank || 0) + (Math.max(-0.16, Math.min(0.16, -yawRate * 0.05))
+           - (P.bank || 0)) * Math.min(1, dt * 6);
+  dante.rotation.set(0, P.yaw, P.bank * P.moveS);
   animateHuman(danteH, { t: T, phase: P.run, move: P.moveS, run: P.runS,
                          grounded: P.on });
+  // footsteps land where the stride lands
+  const stepSign = Math.sin(P.run) >= 0 ? 1 : -1;
+  if (P.on && P.moveS > 0.4 && stepSign !== (P.lastStep ?? stepSign)) {
+    tone(stepSign > 0 ? 95 : 88, 55, 0.06, 'triangle', 0.05);
+  }
+  P.lastStep = stepSign;
   // Virgil: breathing idle, lamp arm held, head turning to watch Dante come
   virgil.position.y = groundH(virgil.position.x, virgil.position.z);
   animateHuman(virgilH, { t: T + 3.1, phase: 0, move: 0, run: 0,
