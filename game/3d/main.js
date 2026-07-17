@@ -2,11 +2,18 @@
 // out of the grate, onto the island at the foot of the mountain, at dawn.
 // Same rules as below: teach then test, lit edges mean walkable,
 // death is a splash and an instant return.
-import * as THREE from './three.module.min.js';
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
+const isCoarse = matchMedia('(pointer: coarse)').matches;
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, isCoarse ? 1.6 : 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -18,6 +25,110 @@ scene.background = new THREE.Color(0x141c2e);
 scene.fog = new THREE.FogExp2(0x27324e, 0.012);
 
 const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 500);
+
+// modern pipeline: MSAA render target → bloom → tonemapped output
+const composer = new EffectComposer(renderer,
+  new THREE.WebGLRenderTarget(innerWidth, innerHeight,
+    { samples: 4, type: THREE.HalfFloatType }));
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(
+  new THREE.Vector2(innerWidth, innerHeight), 0.5, 0.55, 0.8);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// image-based lighting: materials pick up soft ambient reflections
+{
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  if ('environmentIntensity' in scene) scene.environmentIntensity = 0.32;
+}
+
+// ------------------------------------------------------ canvas textures --
+// procedural texture kitchen: wood grain, burlap, ground noise, sky
+function canvasTex(w, h, draw, rx = 1, ry = 1) {
+  const c2 = document.createElement('canvas');
+  c2.width = w; c2.height = h;
+  draw(c2.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c2);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(rx, ry);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const hex2css = n => '#' + n.toString(16).padStart(6, '0');
+const woodCache = new Map();
+function woodTex(base) {
+  if (woodCache.has(base)) return woodCache.get(base);
+  const t = canvasTex(128, 256, (g, w, h) => {
+    g.fillStyle = hex2css(base); g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 70; i++) {                 // grain streaks
+      const x = Math.random() * w, dark = Math.random() < 0.55;
+      g.strokeStyle = dark ? 'rgba(20,10,4,0.14)' : 'rgba(255,225,180,0.07)';
+      g.lineWidth = 0.5 + Math.random() * 2.2;
+      g.beginPath(); g.moveTo(x, 0);
+      g.bezierCurveTo(x + 6 - Math.random() * 12, h * 0.33,
+                      x + 6 - Math.random() * 12, h * 0.66, x, h);
+      g.stroke();
+    }
+    for (let i = 0; i < 4; i++) {                  // knots
+      const x = Math.random() * w, y = Math.random() * h;
+      g.strokeStyle = 'rgba(25,12,5,0.25)'; g.lineWidth = 1;
+      for (let r = 2; r < 8; r += 2.2)
+        g.beginPath(), g.ellipse(x, y, r, r * 1.7, 0, 0, 7), g.stroke();
+    }
+  }, 1.6, 1.6);
+  woodCache.set(base, t);
+  return t;
+}
+function clothTex(base) {
+  return canvasTex(128, 128, (g, w, h) => {
+    g.fillStyle = hex2css(base); g.fillRect(0, 0, w, h);
+    for (let y = 0; y < h; y += 3) {               // weave
+      g.fillStyle = y % 6 ? 'rgba(0,0,0,0.09)' : 'rgba(255,240,210,0.05)';
+      g.fillRect(0, y, w, 1.4);
+    }
+    for (let x = 0; x < w; x += 3)
+      g.fillStyle = 'rgba(0,0,0,0.05)', g.fillRect(x, 0, 1.2, h);
+    for (let i = 0; i < 300; i++)
+      g.fillStyle = Math.random() < 0.5 ? 'rgba(0,0,0,0.1)' : 'rgba(255,235,200,0.06)',
+      g.fillRect(Math.random() * w, Math.random() * h, 1.3, 1.3);
+  }, 3, 3);
+}
+const groundTexture = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#4a4434'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 2400; i++) {
+    const v = Math.random();
+    g.fillStyle = v < 0.5 ? 'rgba(20,16,8,0.16)' : 'rgba(200,190,140,0.07)';
+    g.fillRect(Math.random() * w, Math.random() * h,
+               1 + Math.random() * 2.4, 1 + Math.random() * 1.6);
+  }
+  for (let i = 0; i < 26; i++) {                   // soil patches
+    g.fillStyle = 'rgba(30,22,10,0.12)';
+    g.beginPath();
+    g.ellipse(Math.random() * w, Math.random() * h,
+              6 + Math.random() * 22, 4 + Math.random() * 14,
+              Math.random() * 3, 0, 7);
+    g.fill();
+  }
+}, 22, 24);
+// dawn sky dome — a real gradient sky instead of a flat clear color
+const skyDome = new THREE.Mesh(
+  new THREE.SphereGeometry(430, 32, 18),
+  new THREE.MeshBasicMaterial({
+    side: THREE.BackSide, fog: false, depthWrite: false,
+    map: canvasTex(64, 512, (g, w, h) => {
+      const gr = g.createLinearGradient(0, 0, 0, h);
+      gr.addColorStop(0, '#0e1830');
+      gr.addColorStop(0.42, '#2b3f60');
+      gr.addColorStop(0.62, '#57688a');
+      gr.addColorStop(0.74, '#b98d6e');
+      gr.addColorStop(0.8, '#e0b285');
+      gr.addColorStop(1, '#5a6a86');
+      g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    }),
+  }));
+skyDome.renderOrder = -10;
+scene.add(skyDome);
 
 // ------------------------------------------------------------- lighting --
 const hemi = new THREE.HemisphereLight(0x44547a, 0x1e1812, 1.05);
@@ -88,7 +199,7 @@ function groundH(x, z) {
   }
   g.computeVertexNormals();
   const ground = new THREE.Mesh(g, new THREE.MeshStandardMaterial({
-    color: 0x4a4434, roughness: 0.95 }));
+    map: groundTexture, roughness: 0.95 }));
   ground.receiveShadow = true;
   scene.add(ground);
 }
@@ -112,8 +223,8 @@ function groundH(x, z) {
 // the sea
 const sea = new THREE.Mesh(
   new THREE.CircleGeometry(400, 48),
-  new THREE.MeshStandardMaterial({ color: 0x12283a, roughness: 0.35,
-                                   metalness: 0.25 }));
+  new THREE.MeshStandardMaterial({ color: 0x16324a, roughness: 0.12,
+                                   metalness: 0.55 }));
 sea.rotateX(-Math.PI / 2);
 sea.position.y = -1.6;
 scene.add(sea);
@@ -215,14 +326,17 @@ function limbSeg(len, r, mat, jointM) {
   return g;
 }
 function makeHuman(o) {
-  const coatM = new THREE.MeshStandardMaterial({ color: o.coat, roughness: 0.88 });
-  const trouM = new THREE.MeshStandardMaterial({ color: o.trousers, roughness: 0.9 });
-  const skinM = new THREE.MeshStandardMaterial({ color: o.skin, roughness: 0.75 });
+  // wood grain on every wooden part — the mannequin reads as carved,
+  // not extruded
+  const coatM = new THREE.MeshStandardMaterial({ map: woodTex(o.coat), roughness: 0.8 });
+  const trouM = new THREE.MeshStandardMaterial({ map: woodTex(o.trousers), roughness: 0.82 });
+  const skinM = new THREE.MeshStandardMaterial({ map: woodTex(o.skin), roughness: 0.7 });
   const hairM = new THREE.MeshStandardMaterial({ color: o.hair, roughness: 0.95 });
-  const shoeM = new THREE.MeshStandardMaterial({ color: o.shoe ?? 0x15130f, roughness: 0.7 });
+  const shoeM = new THREE.MeshStandardMaterial({ map: woodTex(o.shoe ?? 0x15130f), roughness: 0.7 });
   const jointM = o.joint
-    ? new THREE.MeshStandardMaterial({ color: o.joint, roughness: 0.85 })
+    ? new THREE.MeshStandardMaterial({ map: woodTex(o.joint), roughness: 0.6 })
     : null;
+  if (o.clothCoat) { coatM.map = clothTex(o.coat); coatM.roughness = 0.95; }
 
   const root = new THREE.Group();
   const parts = { arms: {}, legs: {} };
@@ -286,7 +400,7 @@ function makeHuman(o) {
     neck.add(hair);
   }
   if (o.cape) {                                      // the traveler's cape
-    const capeM = new THREE.MeshStandardMaterial({ color: o.cape,
+    const capeM = new THREE.MeshStandardMaterial({ map: clothTex(o.cape),
       roughness: 1, side: THREE.DoubleSide });
     const cape = new THREE.Mesh(
       new THREE.ConeGeometry(0.36, 0.98, 10, 1, true), capeM);
@@ -408,7 +522,7 @@ scene.add(dante);
 // bulb held up on its wire: his lamp, as the renders have it
 const virgilH = makeHuman({
   coat: 0x8f8266, trousers: 0x6e5138, skin: 0x96704c, hair: 0x8a8578,
-  joint: 0x59422e, shoe: 0x2b2019, tophat: true,
+  joint: 0x59422e, shoe: 0x2b2019, tophat: true, clothCoat: true,
 });
 const virgil = virgilH.root;
 virgil.position.set(1.6, 0, GATE_Z - 4);
@@ -436,6 +550,33 @@ scene.add(virgil);
 const lamp = new THREE.PointLight(0xffc873, 9, 13);
 lamp.position.y = -0.18;
 virgilH.parts.arms.R.hand.add(lamp);
+
+// -------------------------------------------------------- real 3D models --
+// Drop a rigged GLB (Blender/Mixamo/Meshy export) at models/dante.glb and
+// it replaces the mannequin. Animation clips named *idle*/*walk*/*run*
+// (case-insensitive) are blended by the same movement state that drives
+// the procedural rig. No file → the mannequin plays on.
+let mixer = null;
+const acts = {};
+if (location.protocol !== 'file:')   // over file:// the probe can't work
+new GLTFLoader().load('models/dante.glb', gltf => {
+  const m = gltf.scene;
+  const box = new THREE.Box3().setFromObject(m);
+  m.scale.setScalar(2.05 / Math.max(0.001, box.max.y - box.min.y));
+  m.position.y = 0;
+  m.traverse(n => { if (n.isMesh) n.castShadow = true; });
+  dante.add(m);
+  danteH.parts.pelvis.visible = false;
+  mixer = new THREE.AnimationMixer(m);
+  for (const clip of gltf.animations) {
+    const n = clip.name.toLowerCase();
+    if (n.includes('run')) acts.run = mixer.clipAction(clip);
+    else if (n.includes('walk')) acts.walk = mixer.clipAction(clip);
+    else if (n.includes('idle')) acts.idle = mixer.clipAction(clip);
+  }
+  for (const a of Object.values(acts)) { a.play(); a.setEffectiveWeight(0); }
+  (acts.idle || Object.values(acts)[0])?.setEffectiveWeight(1);
+}, undefined, () => { /* no model shipped — mannequin it is */ });
 
 // ---------------------------------------------------------------- input --
 const keys = {};
@@ -668,6 +809,12 @@ function frame(ts) {
   dante.rotation.set(0, P.yaw, P.bank * P.moveS);
   animateHuman(danteH, { t: T, phase: P.run, move: P.moveS, run: P.runS,
                          grounded: P.on });
+  if (mixer) {                       // a real model is riding this state
+    mixer.update(dt);
+    acts.idle?.setEffectiveWeight(1 - P.moveS);
+    acts.walk?.setEffectiveWeight(P.moveS * (1 - P.runS));
+    acts.run?.setEffectiveWeight(P.moveS * P.runS);
+  }
   // footsteps land where the stride lands
   const stepSign = Math.sin(P.run) >= 0 ? 1 : -1;
   if (P.on && P.moveS > 0.4 && stepSign !== (P.lastStep ?? stepSign)) {
@@ -715,13 +862,15 @@ function frame(ts) {
   camera.lookAt(P.x, P.y + 1.6, P.z + 2.5);
   sun.target.position.set(P.x, 0, P.z);
 
-  renderer.render(scene, camera);
+  composer.render();
   requestAnimationFrame(frame);
 }
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
+  bloom.setSize(innerWidth, innerHeight);
 });
 window.G3 = { P, get ended() { return ended; }, get deaths() { return deaths; } };
 requestAnimationFrame(frame);

@@ -58,13 +58,16 @@
     <p style="color:#8A8578;font-style:italic">the mountain waits</p>
     <a href="../">↺ descend again</a>
   </div></div>
-  <div id="hint">WASD / arrows walk · shift run · space jump · drag to steer · v5</div>
+  <div id="hint">WASD / arrows walk · shift run · space jump · drag to steer · v6</div>
 </div>
 <div id="stick"><div id="nub"></div></div>
 <div id="jump">▲</div>
 <!-- bundle.js is built from main.js (source of truth) with:
+     npm i three esbuild
      npx esbuild main.js --bundle --minify --format=iife --outfile=bundle.js
-     Bundled so the chapter also runs from file:// with no server. -->
+     Bundled so the chapter also runs from file:// with no server.
+     Optional: put a rigged GLB at models/dante.glb (clips named
+     idle/walk/run) and it replaces the procedural mannequin. -->
 <script src="bundle.js"></script>
 </body>
 </html>
