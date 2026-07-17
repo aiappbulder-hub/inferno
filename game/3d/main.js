@@ -228,21 +228,53 @@ function groundH(x, z) {
   ground.receiveShadow = true;
   scene.add(ground);
 }
-// the path itself — lighter, with the lit edges that mean "walkable"
+// the path itself — SEGMENTED at the tide-channels. The rule of the whole
+// game: what looks solid is solid, the lit edge means walkable — so the
+// path and its edges visibly END at each cut, with snapped planks and
+// foam marking the break.
 {
-  const path = new THREE.Mesh(
-    new THREE.PlaneGeometry(7, 120),
-    new THREE.MeshStandardMaterial({ color: 0x6a6148, roughness: 0.9 }));
-  path.rotateX(-Math.PI / 2);
-  path.position.set(0, 0.03, 42);
-  path.receiveShadow = true;
-  scene.add(path);
-  const edgeMat = new THREE.MeshStandardMaterial({
+  const pathM = new THREE.MeshStandardMaterial({ color: 0x6a6148, roughness: 0.9 });
+  const edgeM = new THREE.MeshStandardMaterial({
     color: 0xa8b060, emissive: 0x6a7030, emissiveIntensity: 0.7 });
-  for (const sx of [-3.6, 3.6]) {
-    const e = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.1, 120), edgeMat);
-    e.position.set(sx, 0.08, 42);
-    scene.add(e);
+  const SEGS = [[-6, CHANNELS[0][0]], [CHANNELS[0][1], CHANNELS[1][0]],
+                [CHANNELS[1][1], 96]];
+  for (const [z0, z1] of SEGS) {
+    const len = z1 - z0, mid = (z0 + z1) / 2;
+    const p = new THREE.Mesh(new THREE.PlaneGeometry(7, len), pathM);
+    p.rotateX(-Math.PI / 2);
+    p.position.set(0, 0.03, mid);
+    p.receiveShadow = true;
+    scene.add(p);
+    for (const sx of [-3.6, 3.6]) {
+      const e = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.1, len), edgeM);
+      e.position.set(sx, 0.08, mid);
+      scene.add(e);
+    }
+  }
+  const chanWaterM = new THREE.MeshStandardMaterial({
+    color: 0x0e2233, roughness: 0.15, metalness: 0.45 });
+  const foamM = new THREE.MeshBasicMaterial({ color: 0xdfe9ec });
+  const plankM = new THREE.MeshStandardMaterial({ color: 0x4e3b26, roughness: 0.9 });
+  for (const [a, b] of CHANNELS) {
+    // dark water filling the cut, well below the lip
+    const wtr = new THREE.Mesh(new THREE.PlaneGeometry(32, b - a), chanWaterM);
+    wtr.rotateX(-Math.PI / 2);
+    wtr.position.set(0, -1.15, (a + b) / 2);
+    scene.add(wtr);
+    for (const zz of [a, b]) {                       // foam along the lips
+      const f = new THREE.Mesh(new THREE.BoxGeometry(8.5, 0.05, 0.18), foamM);
+      f.position.set(0, 0.02, zz);
+      scene.add(f);
+    }
+    for (const [zz, dir] of [[a, -1], [b, 1]]) {     // snapped plank ends
+      for (const sx of [-2.2, 0.4, 2.6]) {
+        const pl = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.12, 1.3), plankM);
+        pl.position.set(sx, -0.3, zz + dir * 0.5);
+        pl.rotation.x = -dir * 0.55;
+        pl.castShadow = true;
+        scene.add(pl);
+      }
+    }
   }
 }
 // the sea
@@ -309,7 +341,8 @@ const motes = [];
   moteGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
 }
 const moteCloud = new THREE.Points(moteGeo, new THREE.PointsMaterial({
-  color: 0xe8d9a0, size: 0.12, transparent: true, opacity: 0.8 }));
+  color: 0xe8d9a0, size: 2.2, sizeAttenuation: false,
+  transparent: true, opacity: 0.7, depthWrite: false }));
 scene.add(moteCloud);
 
 // the GATE at the mountain's foot — two pillars and a standing light
