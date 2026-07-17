@@ -9,6 +9,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 
 const isCoarse = matchMedia('(pointer: coarse)').matches;
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -129,6 +130,30 @@ const skyDome = new THREE.Mesh(
   }));
 skyDome.renderOrder = -10;
 scene.add(skyDome);
+
+// the real thing: Poly Haven's Venice-sunset HDRI (CC0) as both the sky
+// and the light of the world — photographic dawn over water. The canvas
+// dome stays as the file:// fallback.
+if (location.protocol !== 'file:') {
+  new RGBELoader().load('assets/venice_sunset_1k.hdr', tex => {
+    tex.mapping = THREE.EquirectangularReflectionMapping;
+    const pm = new THREE.PMREMGenerator(renderer);
+    scene.environment = pm.fromEquirectangular(tex).texture;
+    if ('environmentIntensity' in scene) scene.environmentIntensity = 0.6;
+    scene.background = tex;
+    scene.backgroundIntensity = 0.8;
+    // blur the panorama's Venice skyline into pure dawn light —
+    // the island should feel like the only land in the world
+    scene.backgroundBlurriness = 0.22;
+    if (scene.backgroundRotation) scene.backgroundRotation.set(0, Math.PI * 0.5, 0);
+    if (scene.environmentRotation)
+      scene.environmentRotation.copy(scene.backgroundRotation);
+    skyDome.visible = false;
+    sunDisc.visible = false;
+    sunGlow.visible = false;
+    stars.visible = false;
+  }, undefined, () => {});
+}
 
 // ------------------------------------------------------------- lighting --
 const hemi = new THREE.HemisphereLight(0x44547a, 0x1e1812, 1.05);
@@ -578,6 +603,23 @@ new GLTFLoader().load('models/dante.glb', gltf => {
   (acts.idle || Object.values(acts)[0])?.setEffectiveWeight(1);
 }, undefined, () => { /* no model shipped — mannequin it is */ });
 
+// a fox of the shore (Khronos sample, CC0 model / CC-BY rig) — ambles the
+// safe strip between the channels, bolts when Dante comes close
+let fox = null, foxMixer = null;
+const foxActs = {};
+const foxS = { x: -9, z: 38, dir: 1 };
+if (location.protocol !== 'file:')
+new GLTFLoader().load('assets/Fox.glb', g => {
+  fox = g.scene;
+  fox.scale.setScalar(0.012);
+  fox.traverse(n => { if (n.isMesh) n.castShadow = true; });
+  scene.add(fox);
+  foxMixer = new THREE.AnimationMixer(fox);
+  for (const c of g.animations)
+    foxActs[c.name.toLowerCase()] = foxMixer.clipAction(c);
+  (foxActs.walk || Object.values(foxActs)[0])?.play();
+}, undefined, () => {});
+
 // ---------------------------------------------------------------- input --
 const keys = {};
 addEventListener('keydown', e => { keys[e.code] = true; audioInit(); });
@@ -795,7 +837,8 @@ function frame(ts) {
   sun.intensity = 1.2 + dawn * 1.0;
   hemi.intensity = 1.0 + dawn * 0.55;
   scene.fog.color.setHSL(0.62 - dawn * 0.08, 0.3, 0.18 + dawn * 0.12);
-  scene.background.copy(scene.fog.color);
+  if (scene.background && scene.background.isColor)   // HDR sky owns it once loaded
+    scene.background.copy(scene.fog.color);
 
   // actors — the rigs do the acting
   P.moveS = (P.moveS || 0) + ((P.moveT || 0) - (P.moveS || 0)) * Math.min(1, dt * 9);
@@ -840,6 +883,20 @@ function frame(ts) {
       (tgt - virgilH.parts.head.rotation.y) * Math.min(1, dt * 3);
   }
   lamp.intensity = 7 + Math.sin(T * 2.1) * 1.2;
+  if (fox && foxMixer) {
+    const near = Math.hypot(P.x - foxS.x, P.z - foxS.z) < 6;
+    if (near && foxActs.run && !foxActs.run.isRunning()) {
+      foxActs.walk?.stop(); foxActs.run.play();
+    } else if (!near && foxActs.walk && !foxActs.walk.isRunning()) {
+      foxActs.run?.stop(); foxActs.walk.play();
+    }
+    foxS.x += foxS.dir * (near ? 4.6 : 1.1) * dt;
+    if (foxS.x > 10) foxS.dir = -1;
+    if (foxS.x < -10) foxS.dir = 1;
+    fox.position.set(foxS.x, groundH(foxS.x, foxS.z), foxS.z);
+    fox.rotation.y = foxS.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+    foxMixer.update(dt);
+  }
   sunGlow.material.opacity = 0.13 + Math.sin(T * 0.8) * 0.03;
 
   // motes drift
@@ -872,5 +929,6 @@ addEventListener('resize', () => {
   composer.setSize(innerWidth, innerHeight);
   bloom.setSize(innerWidth, innerHeight);
 });
-window.G3 = { P, get ended() { return ended; }, get deaths() { return deaths; } };
+window.G3 = { P, foxS, get fox() { return !!fox; },
+              get ended() { return ended; }, get deaths() { return deaths; } };
 requestAnimationFrame(frame);
