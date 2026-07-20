@@ -10,6 +10,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 
 const isCoarse = matchMedia('(pointer: coarse)').matches;
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -653,6 +654,41 @@ new GLTFLoader().load('assets/Fox.glb', g => {
   (foxActs.walk || Object.values(foxActs)[0])?.play();
 }, undefined, () => {});
 
+// THE HOUND — the player's own model. Something followed us up out of
+// the dark; it hunts the shore below the first channel, and it will not
+// cross running water. Materials assigned by the OBJ's own usemtl names:
+// char hide stays matte black, ember and lava BURN (and bloom).
+let hound = null, houndLight = null;
+const houndS = { x: 4, z: 15, dir: 1, state: 'patrol', cool: 0,
+                 ph: 0, gT: 0, tyaw: Math.PI / 2 };
+const HOUND_MATS = {
+  charhide: new THREE.MeshStandardMaterial({ color: 0x161010, roughness: 1 }),
+  bone: new THREE.MeshStandardMaterial({ color: 0xcfc3ae, roughness: 0.8 }),
+  claw: new THREE.MeshStandardMaterial({ color: 0x2a2320, roughness: 0.5 }),
+  ember: new THREE.MeshStandardMaterial({ color: 0xff6a2a,
+    emissive: 0xff5a22, emissiveIntensity: 2.6 }),
+  lava: new THREE.MeshStandardMaterial({ color: 0xd63a10,
+    emissive: 0xc42f08, emissiveIntensity: 1.6 }),
+};
+if (location.protocol !== 'file:')
+new OBJLoader().load('assets/hellhound.obj', obj => {
+  obj.traverse(n => {
+    if (n.isMesh) {
+      const key = (n.material && n.material.name || '').toLowerCase();
+      n.material = HOUND_MATS[key] || HOUND_MATS.charhide;
+      n.castShadow = true;
+    }
+  });
+  obj.scale.setScalar(0.78);
+  hound = new THREE.Group();
+  hound.add(obj);
+  houndLight = new THREE.PointLight(0xff5a22, 3.5, 6);
+  houndLight.position.set(0, 1.1, 1.1);
+  hound.add(houndLight);
+  hound.position.set(houndS.x, 0, houndS.z);
+  scene.add(hound);
+}, undefined, () => {});
+
 // ---------------------------------------------------------------- input --
 const keys = {};
 addEventListener('keydown', e => { keys[e.code] = true; audioInit(); });
@@ -930,6 +966,60 @@ function frame(ts) {
     fox.rotation.y = foxS.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
     foxMixer.update(dt);
   }
+  if (hound) {
+    const CH0 = CHANNELS[0][0];
+    houndS.cool = Math.max(0, houndS.cool - dt);
+    const hdx = P.x - houndS.x, hdz = P.z - houndS.z;
+    const dist = Math.hypot(hdx, hdz);
+    const preyInZone = P.z < CH0 - 0.4 && !ended;
+    let speed = 0;
+    if (houndS.state === 'patrol') {
+      houndS.x += houndS.dir * 1.3 * dt;
+      houndS.z += (15 - houndS.z) * Math.min(1, dt * 0.5);  // drift home
+      speed = 1.3;
+      if (houndS.x > 6) houndS.dir = -1;
+      if (houndS.x < -6) houndS.dir = 1;
+      houndS.tyaw = houndS.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+      if (preyInZone && dist < 12 && houndS.cool <= 0) {
+        houndS.state = 'chase';
+        tone(72, 44, 0.7, 'sawtooth', 0.16);
+        say('hound', "Something had followed us up out of the dark — char and ember, hating the dawn. Virgil said only: it will not cross running water. Run.");
+      }
+    } else {
+      if (!preyInZone || dist > 20) {
+        houndS.state = 'patrol';        // prey beyond the water — balk
+        tone(60, 42, 0.8, 'sawtooth', 0.1);
+      } else {
+        speed = 6.9;
+        const ux = hdx / (dist || 1), uz = hdz / (dist || 1);
+        houndS.x += ux * speed * dt;
+        houndS.z = Math.min(CH0 - 1.2, houndS.z + uz * speed * dt);
+        houndS.tyaw = Math.atan2(hdx, hdz);
+        if (T - houndS.gT > 1.4) {      // the breathing growl of the chase
+          houndS.gT = T;
+          tone(66, 40, 0.5, 'sawtooth', 0.1);
+        }
+        if (dist < 1.5) {               // it takes him — same law as water
+          deaths++;
+          tone(150, 40, 0.5, 'triangle', 0.15);
+          let cp = CHECKPOINTS[0];
+          for (const c of CHECKPOINTS) if (c < P.z - 1) cp = c;
+          P.x = 0; P.z = cp; P.y = groundH(0, cp); P.vy = 0; P.on = true;
+          houndS.x = 5; houndS.z = 15;
+          houndS.state = 'patrol'; houndS.cool = 2.5;
+        }
+      }
+    }
+    let hyaw = houndS.tyaw - hound.rotation.y;
+    while (hyaw > Math.PI) hyaw -= Math.PI * 2;
+    while (hyaw < -Math.PI) hyaw += Math.PI * 2;
+    hound.rotation.y += hyaw * Math.min(1, dt * 6);
+    houndS.ph += dt * (4 + speed * 2.2);
+    const hbob = speed > 0.1 ? Math.abs(Math.sin(houndS.ph)) * (0.04 + speed * 0.014) : 0;
+    hound.position.set(houndS.x, groundH(houndS.x, houndS.z) + hbob, houndS.z);
+    hound.rotation.x = houndS.state === 'chase' ? -0.07 : Math.sin(T * 0.7) * 0.02;
+    if (houndLight) houndLight.intensity = 3 + Math.sin(T * 7) * 0.9;
+  }
   sunGlow.material.opacity = 0.13 + Math.sin(T * 0.8) * 0.03;
 
   // motes drift
@@ -962,6 +1052,7 @@ addEventListener('resize', () => {
   composer.setSize(innerWidth, innerHeight);
   bloom.setSize(innerWidth, innerHeight);
 });
-window.G3 = { P, foxS, get fox() { return !!fox; },
+window.G3 = { P, foxS, houndS, get fox() { return !!fox; },
+              get hound() { return !!hound; },
               get ended() { return ended; }, get deaths() { return deaths; } };
 requestAnimationFrame(frame);

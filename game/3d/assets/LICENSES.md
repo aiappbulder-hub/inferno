@@ -12,3 +12,9 @@ Animated low-poly fox (Survey / Walk / Run clips).
 - Model: by [PixelMannen](https://opengameart.org/content/fox-and-shiba) — CC0.
 - Rigging & animation: by [@tomkranis](https://sketchfab.com/tomkranis) —
   CC-BY 4.0. Attribution given here as required.
+
+## hellhound.obj
+The hound that followed Dante up from Inferno.
+- Source: provided by the project owner (uploaded asset).
+- Materials assigned in-code from the OBJ's usemtl groups
+  (charhide / bone / claw / ember / lava).
