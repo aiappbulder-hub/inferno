@@ -623,7 +623,9 @@ new GLTFLoader().load('models/dante.glb', gltf => {
   const box = new THREE.Box3().setFromObject(m);
   m.scale.setScalar(2.05 / Math.max(0.001, box.max.y - box.min.y));
   m.position.y = 0;
-  m.traverse(n => { if (n.isMesh) n.castShadow = true; });
+  m.traverse(n => {
+    if (n.isMesh) { n.castShadow = true; n.frustumCulled = false; }
+  });
   dante.add(m);
   danteH.parts.pelvis.visible = false;
   mixer = new THREE.AnimationMixer(m);
@@ -632,6 +634,11 @@ new GLTFLoader().load('models/dante.glb', gltf => {
     if (n.includes('run')) acts.run = mixer.clipAction(clip);
     else if (n.includes('walk')) acts.walk = mixer.clipAction(clip);
     else if (n.includes('idle')) acts.idle = mixer.clipAction(clip);
+  }
+  if (!acts.idle && acts.walk) {
+    // no idle clip shipped — sway the walk at a crawl instead of T-posing
+    acts.idle = mixer.clipAction(acts.walk.getClip().clone());
+    acts.idle.setEffectiveTimeScale(0.18);
   }
   for (const a of Object.values(acts)) { a.play(); a.setEffectiveWeight(0); }
   (acts.idle || Object.values(acts)[0])?.setEffectiveWeight(1);
